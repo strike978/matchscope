@@ -17,7 +17,7 @@ from tkinter import ttk, scrolledtext
 
 
 class DNAFetch:
-    VERSION = "0.1.0-alpha"
+    VERSION = "0.1.1-alpha"
 
     def validate_and_update_get_matches_button(self):
         """
@@ -960,7 +960,9 @@ class DNAFetch:
         Retrieve all pages from the Leeds Method endpoint using the current test GUID.
         Print each page's response to the console with a 2.5s delay and a blank line between outputs.
         """
-
+        import tkinter.messagebox as messagebox
+        messagebox.showinfo(
+            "Leeds Method", "The Leeds Method feature is not functional yet.")
         if not self.auth_ok or not self.selected_test_guid:
             print("Not authenticated or no test selected.")
             return
