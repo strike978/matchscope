@@ -101,15 +101,8 @@ Example: `ancestry_matches_ABC123_20250702.csv`
 
 ### Data Integrity
 
-- Smart CSV handling that adapts to changing column structures
-- Progressive saving ensures data isn't lost if the process is interrupted
+- CSV handling adapts to changing column structures
 - Duplicate detection prevents redundant data
-
-### Error Handling
-
-- Robust error handling for network issues
-- Graceful handling of authentication problems
-- Detailed logging for troubleshooting
 
 ## Troubleshooting
 
