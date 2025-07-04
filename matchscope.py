@@ -1,4 +1,3 @@
-
 # --- Standard Library Imports ---
 import re
 import time
@@ -17,7 +16,7 @@ from tkinter import ttk, scrolledtext
 
 
 class DNAFetch:
-    VERSION = "0.1.1-alpha"
+    VERSION = "0.1.2-alpha"
 
     def validate_and_update_get_matches_button(self):
         """
@@ -340,7 +339,7 @@ class DNAFetch:
             self.status_label = ttk.Label(frm, text="")
         self.status_label.config(text="")
         self.status_label.grid(
-            row=5, column=0, columnspan=6, sticky='w', pady=(0, 5))
+            row=4, column=0, columnspan=6, sticky='w', pady=(0, 5))
         if not hasattr(self, 'output_text'):
             self.output_text = scrolledtext.ScrolledText(
                 frm, width=80, height=12, font=('TkDefaultFont', 10), state='disabled', wrap='word')
@@ -348,8 +347,8 @@ class DNAFetch:
         self.output_text.delete('1.0', tk.END)
         self.output_text.config(state='disabled')
         self.output_text.grid(
-            row=6, column=0, columnspan=6, pady=10, sticky='nsew')
-        frm.rowconfigure(6, weight=0)  # Remove extra vertical stretch
+            row=5, column=0, columnspan=6, pady=10, sticky='nsew')
+        frm.rowconfigure(5, weight=0)  # Remove extra vertical stretch
 
     def __init__(self, root):
         self.root = root
@@ -370,19 +369,40 @@ class DNAFetch:
                 pass
 
         self.session = requests.Session()
-        self.headers = {}
+
+        # Hardcoded working headers
+        self.headers = {
+            "accept": "*/*",
+            "accept-language": "en-US,en;q=0.8",
+            "ancestry-context-ube": "eyJldmVudElkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwIiwiY29ycmVsYXRlZFNjcmVlblZpZXdlZElkIjoiY2FkNzQ3ZTQtODY2ZS00YjMxLWFiMTQtMTEzOTA5MzUzODg3IiwiY29ycmVsYXRlZFNlc3Npb25JZCI6ImQ5ZWRiOGRiLTYzMTEtNGRhMS1iNjM0LTlkMmQxYWUwMzZmZiIsInNjcmVlbk5hbWVTdGFuZGFyZCI6IiIsInNjcmVlbk5hbWUiOiIiLCJ1c2VyQ29uc2VudCI6Im5lY2Vzc2FyeXxwcmVmZXJlbmNlfHBlcmZvcm1hbmNlfGFuYWx5dGljczFzdHxhbmFseXRpY3MzcmR8YWR2ZXJ0aXNpbmcxc3R8YXR0cmlidXRpb24zcmQiLCJ2ZW5kb3JzIjoiIiwidmVuZG9yQ29uZmlndXJhdGlvbnMiOiJ7fSJ9",
+            "newrelic": "eyJ2IjpbMCwxXSwiZCI6eyJ0eSI6IkJyb3dzZXIiLCJhYyI6IjE2OTA1NzAiLCJhcCI6IjMxMjUwMjkyMyIsImlkIjoiNTg2NjcwY2EzMWEwZDA2OCIsInRyIjoiYjNjMjQzZTU0YzA3OWViYTg0NzU1ODVkYTQxZTIyNjkiLCJ0aSI6MTc1MTM4NjY3MjQxNywidGsiOiIyNjExNzUwIn19",
+            "priority": "u=1, i",
+            "referer": "https://www.ancestry.com/",
+            "sec-ch-ua": "",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "sec-gpc": "1",
+            "traceparent": "00-b3c243e54c079eba8475585da41e2269-586670ca31a0d068-01",
+            "tracestate": "2611750@nr=0-1-1690570-312502923-586670ca31a0d068----1751386672417",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+        }
+
+        # Hardcoded working cookies
         self.cookies = {}
         self.tests_data = []
         self.selected_test_guid = ''
         self.name = None
         self.auth_ok = False
         self.build_ui()
-        # Preload curl data from curl.txt if available
+        # Preload cookie data from cookie.txt if available
         try:
-            with open('curl.txt', 'r', encoding='utf-8') as f:
-                curl_data = f.read().strip()
-            if curl_data:
-                self.curl_text.insert('1.0', curl_data)
+            with open('cookie.txt', 'r', encoding='utf-8') as f:
+                cookie_data = f.read().strip()
+            if cookie_data:
+                self.cookie_text.insert('1.0', cookie_data)
         except Exception:
             pass
 
@@ -396,33 +416,37 @@ class DNAFetch:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        # Curl command input
-        self.curl_label = ttk.Label(frm, text='Paste your curl command:')
-        self.curl_label.grid(row=0, column=0, sticky='w')
-        self.curl_text = scrolledtext.ScrolledText(frm, width=100, height=6)
-        self.curl_text.grid(row=1, column=0, columnspan=4,
-                            sticky='ew', pady=(10, 0))
+        # Simple authentication info
+        self.auth_info_label = ttk.Label(
+            frm, text='🍪 Paste your Ancestry.com browser cookies below to authenticate:')
+        self.auth_info_label.grid(row=0, column=0, columnspan=4, sticky='w')
+
+        # Cookie input
+        self.cookie_text = scrolledtext.ScrolledText(frm, width=100, height=6)
+        self.cookie_text.grid(row=1, column=0, columnspan=4,
+                              sticky='ew', pady=(10, 0))
 
         # Authentication and clear buttons
         self.auth_btn = ttk.Button(
             frm, text='Authenticate', command=self.authenticate)
-        self.auth_btn.grid(row=2, column=0, sticky='w')
+        self.auth_btn.grid(row=2, column=0, sticky='w', pady=(10, 0))
         self.clear_btn = ttk.Button(
-            frm, text='Clear', command=self.clear_all)
-        self.clear_btn.grid(row=2, column=1, sticky='w')
+            frm, text='Clear', command=self.clear_cookies)
+        self.clear_btn.grid(row=2, column=1, sticky='w', pady=(10, 0))
         self.auth_error_label = ttk.Label(frm, text='', foreground='red')
         self.auth_error_label.grid(row=4, column=0, columnspan=6, sticky='w')
         self.auth_error_label.grid_remove()
         self.logout_btn = ttk.Button(
             frm, text='Sign Out', command=self.clear_all, state='disabled')
-        self.logout_btn.grid(row=2, column=6, sticky='e')
+        self.logout_btn.grid(row=2, column=6, sticky='e', pady=(10, 0))
         self.logout_btn.grid_remove()
 
         # Test selection (hidden until authenticated)
         self.test_label = ttk.Label(frm, text='Select a test:')
-        self.test_label.grid(row=2, column=4, sticky='e', padx=(20, 2))
+        self.test_label.grid(row=2, column=4, sticky='e',
+                             padx=(20, 2), pady=(10, 0))
         self.tests_combo = ttk.Combobox(frm, state='readonly')
-        self.tests_combo.grid(row=2, column=5, sticky='w')
+        self.tests_combo.grid(row=2, column=5, sticky='w', pady=(10, 0))
         self.tests_combo.bind('<<ComboboxSelected>>', self.on_test_select)
         self.test_label.grid_remove()
         self.tests_combo.grid_remove()
@@ -464,10 +488,10 @@ class DNAFetch:
         self.get_matches_btn.grid_remove()
 
         # Leeds Method button (hidden until authenticated)
-        self.leeds_btn = ttk.Button(
-            frm, text='Leeds Method', command=self.leeds_method)
-        self.leeds_btn.grid(row=2, column=2, sticky='w', padx=(10, 0))
-        self.leeds_btn.grid_remove()
+        # self.leeds_btn = ttk.Button(
+        #     frm, text='Leeds Method', command=self.leeds_method)
+        # self.leeds_btn.grid(row=4, column=2, sticky='w', padx=(10, 0))
+        # self.leeds_btn.grid_remove()
 
         # Bind items per page change to update total pages label only
         self.items_per_page_entry.bind(
@@ -488,11 +512,11 @@ class DNAFetch:
         # Pause button (hidden until retrieval starts)
         self.pause_btn = ttk.Button(
             frm, text='Pause', command=self.toggle_pause, state='disabled')
-        self.pause_btn.grid(row=4, column=2, columnspan=6,
+        self.pause_btn.grid(row=5, column=2, columnspan=6,
                             sticky='w', pady=(8, 0))
         self.pause_btn.grid_remove()
 
-        frm.rowconfigure(4, weight=1)
+        frm.rowconfigure(5, weight=1)
 
     def toggle_pause(self):
         if not hasattr(self, '_pause_event'):
@@ -531,20 +555,28 @@ class DNAFetch:
             self.status_label.config(text='')
             self.status_label.grid_remove()
 
+    def clear_cookies(self):
+        """Clear only the cookie text box."""
+        self.cookie_text.delete('1.0', tk.END)
+        self.auth_error_label.config(text='')
+        self.auth_error_label.grid_remove()
+
     def clear_all(self):
         # Reset UI to initial state
-        self.curl_text.delete('1.0', tk.END)
-        self.curl_text.grid(row=1, column=0, columnspan=4, sticky='ew')
-        self.curl_label.grid(row=0, column=0, sticky='w')
+        self.auth_info_label.grid(row=0, column=0, columnspan=4, sticky='w')
+        self.cookie_text.grid(row=1, column=0, columnspan=4,
+                              sticky='ew', pady=(10, 0))
+        # Clear the cookie text when signing out
+        self.cookie_text.delete('1.0', tk.END)
         self.auth_btn.config(state='normal')
-        self.auth_btn.grid(row=2, column=0, sticky='w')
-        self.clear_btn.grid(row=2, column=1, sticky='w')
+        self.auth_btn.grid(row=2, column=0, sticky='w', pady=(10, 0))
+        self.clear_btn.grid(row=2, column=1, sticky='w', pady=(10, 0))
         self.auth_error_label.config(text='')
         self.auth_error_label.grid_remove()
         self.tests_combo.grid_remove()
         self.test_label.grid_remove()
         self.get_matches_btn.grid_remove()
-        self.leeds_btn.grid_remove()
+        # self.leeds_btn.grid_remove()
         self.logout_btn.config(state='disabled')
         self.logout_btn.grid_remove()
         self.pause_btn.config(state='disabled')
@@ -556,8 +588,7 @@ class DNAFetch:
         self.auth_ok = False
         self.tests_data = []
         self.selected_test_guid = ''
-        self.headers = {}
-        self.cookies = {}
+        self.cookies = {}  # Clear cookies on logout
 
         # Cancel any running retrieval thread
         self._cancel_retrieval()
@@ -575,59 +606,63 @@ class DNAFetch:
             self.output_text.insert('1.0', text)
             self.output_text.config(state='disabled')
 
-    def parse_curl_command(self, curl_command):
-        curl_command = curl_command.replace('^"', '"').replace('^', '')
-        curl_command = re.sub(r'\\', ' ', curl_command)
-        curl_command = re.sub(r'\s+', ' ', curl_command.strip())
-        url = re.search(r'curl\s+[""]?([^"\'\s]+)[""]?', curl_command)
-        url = url.group(1) if url else None
-        headers = dict(
-            (k.strip(), v.strip())
-            for k, v in (h.split(':', 1) for h in re.findall(r'-H\s+[""]([^"\"]+)[""]', curl_command) if ':' in h)
-        )
-        cookies = {}
-        cookie_match = re.search(r'-b\s+[""]([^""]+)[""]', curl_command)
-        if cookie_match:
-            for pair in unquote(cookie_match.group(1)).split(';'):
-                if '=' in pair:
-                    k, v = map(str.strip, pair.split('=', 1))
-                    cookies[k] = v
-        return url, 'GET', headers, cookies, None
-
     def is_matches_endpoint(self, url):
         return url and '/discoveryui-matches/parents/list/api/matchList/' in url
 
+    def parse_cookie_string(self, cookie_string):
+        """Parse a browser cookie string into a dictionary."""
+        cookies = {}
+        if not cookie_string:
+            return cookies
+
+        # Handle both semicolon-separated and line-separated formats
+        cookie_string = cookie_string.strip()
+
+        # Split by semicolons or newlines
+        if ';' in cookie_string:
+            pairs = cookie_string.split(';')
+        else:
+            pairs = cookie_string.split('\n')
+
+        for pair in pairs:
+            pair = pair.strip()
+            if '=' in pair:
+                k, v = pair.split('=', 1)
+                cookies[k.strip()] = v.strip()
+
+        return cookies
+
     def authenticate(self):
-        curl = self.curl_text.get('1.0', tk.END).strip()
+        # Use hardcoded headers with user-provided cookies
         self.auth_error_label.config(text='')
-        if not curl:
+
+        cookie_string = self.cookie_text.get('1.0', tk.END).strip()
+        if not cookie_string:
             self.auth_error_label.config(
-                text='Please paste your curl command.')
+                text='Please paste your browser cookies.')
             self.auth_error_label.grid()
             return
-        url, method, headers, cookies, _ = self.parse_curl_command(curl)
-        if not url or self.is_matches_endpoint(url):
-            self.auth_error_label.config(
-                text='Invalid or missing URL in curl command.')
-            self.auth_error_label.grid()
-            return
+
+        # Parse cookies from user input
+        self.cookies = self.parse_cookie_string(cookie_string)
+
+        url = 'https://www.ancestry.com/api/navheaderdata/v1/header/data/user'
+
         try:
-            resp = self.session.get(url, headers=headers, cookies=cookies)
-            merged_cookies = dict(cookies)
-            merged_cookies.update(self.session.cookies.get_dict())
-            if url == 'https://www.ancestry.com/api/navheaderdata/v1/header/data/user' and resp.status_code == 200:
+            resp = self.session.get(
+                url, headers=self.headers, cookies=self.cookies)
+
+            if resp.status_code == 200:
                 auth_json = resp.json()
                 self.name = auth_json.get('user', {}).get('name')
                 if self.name:
-                    self.headers = headers
-                    self.cookies = merged_cookies
                     self.auth_ok = True
                     self.fetch_tests()
                     self.auth_btn.config(state='disabled')
                     self.auth_btn.grid_remove()
                     self.clear_btn.grid_remove()
-                    self.curl_text.grid_remove()
-                    self.curl_label.grid_remove()
+                    self.cookie_text.grid_remove()
+                    self.auth_info_label.grid_remove()
                     self.auth_error_label.grid_remove()
                     self.logout_btn.config(state='normal')
                     self.logout_btn.grid()  # Show log out button
@@ -637,7 +672,7 @@ class DNAFetch:
                     self.test_label.grid()
                     self.page_group.grid()  # Show grouped controls
                     self.get_matches_btn.grid()  # Show Get Matches button
-                    self.leeds_btn.grid()  # Show Leeds Method button
+                    # self.leeds_btn.grid()  # Show Leeds Method button
                     self.pause_btn.config(state='disabled')
                     self.pause_btn.grid_remove()
                     # Update total pages label after authentication

@@ -4,13 +4,13 @@
 
 # MatchScope – AncestryDNA Edition
 
-**Version:** 0.1.1-alpha
+**Version:** 0.1.2-alpha
 
 A tool for extracting and analyzing AncestryDNA match data with detailed ethnicity breakdowns. MatchScope allows you to retrieve comprehensive information about your DNA matches, including their ethnic compositions, and export everything to CSV format for further analysis.
 
 ## ⚠️ Alpha Software Notice
 
-This is alpha software with a technical authentication method. Users must manually extract a curl command from their browser's developer tools. A more user-friendly authentication system is planned for future releases.
+This is alpha software with a technical authentication method. Users must manually extract their browser cookies from the Network tab of their logged-in Ancestry.com session and paste them into the app.
 
 ## Features
 
@@ -47,11 +47,11 @@ This is alpha software with a technical authentication method. Users must manual
 1. Log into your AncestryDNA account in a web browser
 2. Go to the Ancestry homepage: `https://www.ancestry.com/`
 3. Open browser Developer Tools (F12)
-4. Go to the Network tab
-5. Refresh the homepage to trigger API calls
-6. Find a request to `https://www.ancestry.com/api/navheaderdata/v1/header/data/user`
-7. Right-click the request → Copy → Copy as cURL
-8. Paste the curl command into MatchScope
+4. Go to the **Network** tab
+5. Refresh the page
+6. Click any authenticated request (such as one to `/api/navheaderdata/v1/header/data/user`)
+7. In the **Headers** section, find the `cookie` header and copy its entire value
+8. Paste the cookie string into the MatchScope app's cookie box
 
 ### Step 2: Data Retrieval
 
@@ -109,8 +109,8 @@ Example: `ancestry_matches_ABC123_20250702.csv`
 ### Authentication Issues
 
 - Ensure you're logged into AncestryDNA in your browser
-- Make sure the curl command is copied completely
-- Try refreshing the AncestryDNA page and getting a new curl command
+- Make sure you copied the entire cookie string from the Network tab's `cookie` header
+- Try refreshing the AncestryDNA page and copying the cookie string again
 
 ### No Matches Retrieved
 
@@ -134,7 +134,6 @@ Example: `ancestry_matches_ABC123_20250702.csv`
 
 Planned features for future releases:
 
-- User-friendly authentication system
 - Enhanced progress persistence for interruption recovery
 - Leeds Method support
 - Advanced filtering and search capabilities
