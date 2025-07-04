@@ -4,7 +4,7 @@
 
 # MatchScope – AncestryDNA Edition
 
-**Version:** 0.1.2-alpha
+**Version:** 0.1.3-alpha
 
 A tool for extracting and analyzing AncestryDNA match data with detailed ethnicity breakdowns. MatchScope allows you to retrieve comprehensive information about your DNA matches, including their ethnic compositions, and export everything to CSV format for further analysis.
 

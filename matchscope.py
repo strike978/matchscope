@@ -16,7 +16,7 @@ from tkinter import ttk, scrolledtext
 
 
 class DNAFetch:
-    VERSION = "0.1.2-alpha"
+    VERSION = "0.1.3-alpha"
 
     def validate_and_update_get_matches_button(self):
         """
@@ -334,12 +334,13 @@ class DNAFetch:
         This is called after login and before retrieval to guarantee output widgets are available.
         """
         frm = self.root.children[list(self.root.children)[0]]
-        # Add or update status label (directly above the output box)
+        # Add or update status label (now at row=4, above pause/output)
         if not hasattr(self, 'status_label'):
             self.status_label = ttk.Label(frm, text="")
         self.status_label.config(text="")
         self.status_label.grid(
             row=4, column=0, columnspan=6, sticky='w', pady=(0, 5))
+        # Pause button will be at row=5, output box at row=6
         if not hasattr(self, 'output_text'):
             self.output_text = scrolledtext.ScrolledText(
                 frm, width=80, height=12, font=('TkDefaultFont', 10), state='disabled', wrap='word')
@@ -347,8 +348,8 @@ class DNAFetch:
         self.output_text.delete('1.0', tk.END)
         self.output_text.config(state='disabled')
         self.output_text.grid(
-            row=5, column=0, columnspan=6, pady=10, sticky='nsew')
-        frm.rowconfigure(5, weight=0)  # Remove extra vertical stretch
+            row=6, column=0, columnspan=6, pady=10, sticky='nsew')
+        frm.rowconfigure(6, weight=0)  # Remove extra vertical stretch
 
     def __init__(self, root):
         self.root = root
@@ -512,11 +513,11 @@ class DNAFetch:
         # Pause button (hidden until retrieval starts)
         self.pause_btn = ttk.Button(
             frm, text='Pause', command=self.toggle_pause, state='disabled')
-        self.pause_btn.grid(row=5, column=2, columnspan=6,
-                            sticky='w', pady=(8, 0))
+        self.pause_btn.grid(row=5, column=0, columnspan=6,
+                            sticky='w', pady=(0, 5))
         self.pause_btn.grid_remove()
 
-        frm.rowconfigure(5, weight=1)
+        frm.rowconfigure(6, weight=1)
 
     def toggle_pause(self):
         if not hasattr(self, '_pause_event'):
@@ -806,13 +807,21 @@ class DNAFetch:
 
         def worker():
             # This thread performs the match retrieval and CSV export
-            self.root.after(0, lambda: (self.pause_btn.config(
-                state='normal', text='⏸️ Pause'), self.pause_btn.grid()))
-            if not self.auth_ok or not self.selected_test_guid or getattr(self, '_retrieval_cancelled', False):
-                self.root.after(0, lambda: (self.pause_btn.config(
-                    state='disabled'), self.pause_btn.grid_remove()))
-                return
             self.root.after(0, self.ensure_output_box)
+            # Place pause button above the output box (row=4, col=0, col=6, sticky w, pady 0)
+
+            def show_pause_btn():
+                self.pause_btn.grid_forget()
+                self.pause_btn.grid(
+                    row=5, column=0, columnspan=6, sticky='w', pady=(0, 0))
+                self.pause_btn.config(state='normal', text='⏸️ Pause')
+            self.root.after(0, show_pause_btn)
+            if not self.auth_ok or not self.selected_test_guid or getattr(self, '_retrieval_cancelled', False):
+                def hide_pause_btn():
+                    self.pause_btn.config(state='disabled')
+                    self.pause_btn.grid_remove()
+                self.root.after(0, hide_pause_btn)
+                return
 
             items_per_page = self._validate_items_per_page(
                 self.items_per_page_var.get())
