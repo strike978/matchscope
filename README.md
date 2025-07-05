@@ -4,9 +4,9 @@
 
 # MatchScope – AncestryDNA Edition
 
-**Version:** 0.1.3-alpha
+**Version:** 0.1.5-alpha
 
-A tool for extracting and analyzing AncestryDNA match data with detailed ethnicity breakdowns. MatchScope allows you to retrieve comprehensive information about your DNA matches, including their ethnic compositions, and export everything to CSV format for further analysis.
+A modern desktop app (built with Flet) for extracting, analyzing, and visualizing your AncestryDNA matches—including detailed ethnicity region breakdowns for each match. MatchScope features a responsive UI, real-time progress, robust CSV export, ethnicity bar charts, pause/resume controls, support for multiple test kits, and safe, local-only data handling.
 
 ## ⚠️ Alpha Software Notice
 
@@ -15,17 +15,17 @@ This is alpha software with a technical authentication method. Users must manual
 ## Features
 
 - **Comprehensive Match Retrieval**: Extract DNA match data including names, sample IDs, and shared centimorgans
-- **Detailed Ethnicity Analysis**: Get ethnicity breakdowns for each match across 100+ global regions
-- **Smart CSV Export**: Progressive saving with intelligent column management for changing data structures
-- **Pause/Resume Functionality**: Control long-running data retrieval operations
-- **Multiple Test Support**: Handle multiple DNA tests from the same account
-- **Real-time Progress Tracking**: Live status updates during data retrieval
+- **Ethnicity Bar Charts**: Visualize ethnicity regions for each match in real time
+- **Smart CSV Export**: Progressive saving with automatic column management
+- **Pause/Resume**: Control processing at any time
+- **Multiple Test Support**: Analyze multiple DNA kits per account
+- **Live Progress**: Real-time status and progress bar
 
 ## Requirements
 
-- Python 3.6+
+- Python 3.8+
 - `requests` library
-- `tkinter` (usually included with Python)
+- `flet` library
 - Active AncestryDNA account with matches
 
 ## Installation
@@ -45,11 +45,11 @@ This is alpha software with a technical authentication method. Users must manual
 ### Step 1: Authentication Setup
 
 1. Log into your AncestryDNA account in a web browser
-2. Go to the Ancestry homepage: `https://www.ancestry.com/`
+2. Go to the **Matches** section of Ancestry.com: https://www.ancestry.com/discoveryui-matches/
 3. Open browser Developer Tools (F12)
 4. Go to the **Network** tab
 5. Refresh the page
-6. Click any authenticated request (such as one to `/api/navheaderdata/v1/header/data/user`)
+6. Click any request in the list that shows a `cookie` header in the Headers section
 7. In the **Headers** section, find the `cookie` header and copy its entire value
 8. Paste the cookie string into the MatchScope app's cookie box
 
@@ -57,21 +57,19 @@ This is alpha software with a technical authentication method. Users must manual
 
 1. Click "Authenticate" to verify your session
 2. Select which DNA test to analyze (if you have multiple)
-3. Configure retrieval options:
-   - **Number of Pages**: How many pages of matches to retrieve
-   - **Matches per Page**: Number of matches per page (20-100)
+3. Set how many matches to retrieve (default: 50)
 4. Click "Get Matches" to start the retrieval process
 
 ### Step 3: Monitor Progress
 
-- Watch real-time status updates in the application
-- Use Pause/Resume to control the process
-- View ethnicity breakdowns for each match as they're processed
-- Data is progressively saved to CSV during retrieval
+- Watch real-time status and progress bar in the application
+- Use Pause/Resume to control the process (buttons appear only during processing)
+- View ethnicity region bar charts for each match as they're processed
+- Data is progressively saved to a timestamped CSV during retrieval
 
 ## Output Format
 
-The tool generates CSV files with the following structure:
+The tool generates CSV files with the following structure (columns may vary depending on ethnicity regions found):
 
 | Display Name | Sample ID | sharedCM | England & Northwestern Europe | Ireland | Scotland | ... |
 | ------------ | --------- | -------- | ----------------------------- | ------- | -------- | --- |
@@ -87,21 +85,22 @@ The tool generates CSV files with the following structure:
 CSV files are automatically named using the pattern:
 
 ```
-ancestry_matches_{test_guid}_{date}.csv
+matches_{test_guid}_{YYYYMMDD}.csv
 ```
 
-Example: `ancestry_matches_ABC123_20250702.csv`
+Example: `matches_ABC123_20250704.csv`
 
 ## Technical Details
 
-### Rate Limiting
+### Rate Limiting & Threading
 
 - 2.5-second delay between API requests to respect Ancestry's servers
 - Pause/resume functionality for long-running operations
+- All UI updates are performed safely from the background thread
 
 ### Data Integrity
 
-- CSV handling adapts to changing column structures
+- CSV handling adapts to changing column structures (new regions auto-added)
 - Duplicate detection prevents redundant data
 
 ## Troubleshooting
@@ -109,8 +108,8 @@ Example: `ancestry_matches_ABC123_20250702.csv`
 ### Authentication Issues
 
 - Ensure you're logged into AncestryDNA in your browser
-- Make sure you copied the entire cookie string from the Network tab's `cookie` header
-- Try refreshing the AncestryDNA page and copying the cookie string again
+- Make sure you copied the entire cookie string from the Network tab's `cookie` header (from the Matches section)
+- Try refreshing the Matches page and copying the cookie string again
 
 ### No Matches Retrieved
 
@@ -120,7 +119,7 @@ Example: `ancestry_matches_ABC123_20250702.csv`
 ### Application Crashes
 
 - Check that all required Python packages are installed
-- Verify you're using Python 3.6 or later
+- Verify you're using Python 3.8 or later
 - Check the console output for specific error messages
 
 ## Privacy and Security

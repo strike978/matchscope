@@ -1,3 +1,4 @@
 
 # Requirements for matchscope.py
-requests>=2.25.0
+requests>=2.28.0
+flet>=0.18.0
