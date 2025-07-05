@@ -163,6 +163,12 @@ VERSION = "0.1.5-alpha"
 
 
 def main(page: ft.Page):
+    # Helper to update custom match count label only
+    def update_custom_match_count_label():
+        match_type_radio.content.controls[3].label = get_match_type_label(
+            "custom")
+        page.update()
+
     page.title = f"MatchScope v{VERSION}"
     page.window_title_bar_hidden = False
     page.window_title_bar_buttons_hidden = False
@@ -203,18 +209,80 @@ def main(page: ft.Page):
         base = {
             "all": "All matches",
             "close": "Close matches (4th cousin or closer)",
-            "distant": "Distant matches"
+            "distant": "Distant matches",
+            "custom": "Custom centimorgan range"
         }[mt]
-        count = match_type_counts.get(mt)
+        count = match_type_counts.get(mt) if mt in match_type_counts else None
+        # Show count for all types, including custom
+        if mt == "custom":
+            return f"{base} ({count if count is not None else '...'})"
         return f"{base} ({count if count is not None else '...'})"
+
+    # Custom cM range input fields (hidden until match counts are fetched)
+    custom_min_cm = ft.TextField(
+        label="Min cM (min of 6 cM)",
+        width=100,
+        visible=False
+    )
+    custom_max_cm = ft.TextField(
+        label="Max cM (max of 3,490 cM)",
+        width=120,
+        visible=False
+    )
+
+    def on_match_type_change(e):
+        # Do not show/hide custom cM fields here; handled after match count fetch
+        # If custom is selected, update the label with the latest count
+        if match_type_radio.value == "custom":
+            # Optionally, trigger a fetch for the custom count
+            fetch_and_show_match_count()
+        else:
+            page.update()
+
+    def on_custom_cm_change(e):
+        # Only update label if custom is selected and both fields are filled with valid ints
+        min_val = custom_min_cm.value.strip()
+        max_val = custom_max_cm.value.strip()
+        if match_type_radio.value == "custom":
+            if min_val and max_val:
+                try:
+                    lower = int(min_val)
+                    upper = int(max_val)
+                    if lower <= upper:
+                        # Call fetch_and_show_match_count in a new thread to avoid blocking UI
+                        import threading
+                        threading.Thread(
+                            target=fetch_and_show_match_count).start()
+                        return
+                    else:
+                        match_type_counts["custom"] = None
+                        match_type_radio.content.controls[3].label = get_match_type_label(
+                            "custom")
+                        page.update()
+                except Exception:
+                    match_type_counts["custom"] = None
+                    match_type_radio.content.controls[3].label = get_match_type_label(
+                        "custom")
+                    page.update()
+            else:
+                match_type_counts["custom"] = None
+                match_type_radio.content.controls[3].label = get_match_type_label(
+                    "custom")
+                page.update()
+
+    custom_min_cm.on_change = on_custom_cm_change
+    custom_max_cm.on_change = on_custom_cm_change
+
     match_type_radio = ft.RadioGroup(
         content=ft.Column([
             ft.Radio(value="all", label=get_match_type_label("all")),
             ft.Radio(value="close", label=get_match_type_label("close")),
-            ft.Radio(value="distant", label=get_match_type_label("distant"))
+            ft.Radio(value="distant", label=get_match_type_label("distant")),
+            ft.Radio(value="custom", label=get_match_type_label("custom")),
         ]),
         value="all",
-        visible=False
+        visible=False,
+        on_change=on_match_type_change
     )
     number_input = ft.TextField(
         label="Number",
@@ -256,6 +324,8 @@ def main(page: ft.Page):
         # removed match_count_number
         number_input.value = "50"
         number_input.visible = False
+        custom_min_cm.visible = False
+        custom_max_cm.visible = False
         page.update()
 
     def authenticate_clicked(e):
@@ -278,6 +348,7 @@ def main(page: ft.Page):
                     text_area.visible = False
                     auth_btn.visible = False
                     clear_btn.visible = False
+                    # custom_min_cm and custom_max_cm remain hidden until match count is fetched
                     show_message(f"Authenticated as {name}")
                 else:
                     show_message("Authentication failed.")
@@ -286,6 +357,8 @@ def main(page: ft.Page):
         except Exception as ex:
             show_message(f"Error: {ex}")
         number_input.visible = False
+        custom_min_cm.visible = False
+        custom_max_cm.visible = False
         page.update()
 
     def fetch_tests(headers, cookies):
@@ -298,8 +371,7 @@ def main(page: ft.Page):
             resp = requests.get(url, headers=test_headers, cookies=cookies)
             tests_json = resp.json()
             nonlocal tests_data
-            tests_data = {(t.get('testGuid') or t.get('subjectName'))
-                           : t for t in tests_json.get('dnaSamplesData', [])}
+            tests_data = {(t.get('testGuid') or t.get('subjectName'))                          : t for t in tests_json.get('dnaSamplesData', [])}
             test_dropdown.options = [ft.dropdown.Option(key=k, text=t.get(
                 'subjectName') or k) for k, t in tests_data.items()]
         except Exception as ex:
@@ -310,14 +382,19 @@ def main(page: ft.Page):
     def dropdown_changed(e):
         selected = test_dropdown.value
         if not selected or selected not in tests_data:
-            # removed match_count_number and match_count_label
             get_matches_btn.visible = False
             number_input.visible = False
+            match_type_radio.visible = False
+            custom_min_cm.visible = False
+            custom_max_cm.visible = False
             page.update()
             return
         get_matches_btn.visible = True
         number_input.visible = True
         match_type_radio.visible = True
+        # Hide custom cM fields until match count is fetched
+        custom_min_cm.visible = False
+        custom_max_cm.visible = False
         fetch_and_show_match_count()
         page.update()
 
@@ -341,21 +418,101 @@ def main(page: ft.Page):
         def fetch_count_for_type(mt):
             if mt == "close":
                 payload = {"lower": 0, "upper": 9}
+                try:
+                    resp = requests.post(
+                        url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return data.get("count")
+                except Exception:
+                    pass
+                return None
             elif mt == "distant":
                 payload = {"lower": 10, "upper": 10}
+                try:
+                    resp = requests.post(
+                        url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return data.get("count")
+                except Exception:
+                    pass
+                return None
+            elif mt == "custom":
+                try:
+                    lower = int(
+                        custom_min_cm.value) if custom_min_cm.value else 6
+                except Exception:
+                    lower = 6
+                try:
+                    upper = int(
+                        custom_max_cm.value) if custom_max_cm.value else 3490
+                except Exception:
+                    upper = 3490
+                # Step 1: Get totalPages from first page
+                first_url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage=1&sharedDna={lower}-{upper}"
+                try:
+                    resp = requests.get(
+                        first_url, headers=headers, cookies=cookies)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        total_pages = data.get("totalPages")
+                        if total_pages is None:
+                            return None
+                        # Step 2: Get last page and count matches
+                        last_url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={total_pages}&sharedDna={lower}-{upper}"
+                        try:
+                            last_resp = requests.get(
+                                last_url, headers=headers, cookies=cookies)
+                            if last_resp.status_code == 200:
+                                last_data = last_resp.json()
+                                match_list = last_data.get("matchList", [])
+                                if total_pages > 1:
+                                    total_matches = (
+                                        total_pages - 1) * 100 + len(match_list)
+                                else:
+                                    total_matches = len(match_list)
+                                return total_matches
+                        except Exception:
+                            return None
+                    return None
+                except Exception:
+                    return None
             else:
                 payload = {"lower": 0, "upper": 10}
-            try:
-                resp = requests.post(
-                    url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return data.get("count")
-            except Exception:
-                pass
-            return None
+                try:
+                    resp = requests.post(
+                        url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return data.get("count")
+                except Exception:
+                    pass
+                return None
+
+        # Only fetch custom cM count if custom is currently selected and both fields are valid
         for mt in ["all", "close", "distant"]:
             match_type_counts[mt] = fetch_count_for_type(mt)
+        # Only fetch custom if custom is selected and both fields are valid
+        if match_type_radio.value == "custom":
+            min_val = custom_min_cm.value.strip()
+            max_val = custom_max_cm.value.strip()
+            try:
+                lower = int(min_val)
+                upper = int(max_val)
+                if min_val and max_val and lower <= upper:
+                    # Show spinner in label while fetching
+                    match_type_radio.content.controls[
+                        3].label = "Custom centimorgan range (⏳)"
+                    page.update()
+                    match_type_counts["custom"] = fetch_count_for_type(
+                        "custom")
+                else:
+                    match_type_counts["custom"] = None
+            except Exception:
+                match_type_counts["custom"] = None
+        else:
+            match_type_counts["custom"] = None
         # Update radio labels
         match_type_radio.content.controls[0].label = get_match_type_label(
             "all")
@@ -363,11 +520,11 @@ def main(page: ft.Page):
             "close")
         match_type_radio.content.controls[2].label = get_match_type_label(
             "distant")
-        # Show count for selected type
-        match_type = match_type_radio.value if hasattr(
-            match_type_radio, 'value') else "all"
-        count = match_type_counts.get(match_type)
-        # removed match_count_number and match_count_label
+        match_type_radio.content.controls[3].label = get_match_type_label(
+            "custom")
+        # Show custom cM fields now that match counts are fetched
+        custom_min_cm.visible = True
+        custom_max_cm.visible = True
         page.update()
 
     import threading
@@ -409,33 +566,145 @@ def main(page: ft.Page):
                 match_type_radio, 'value') else "all"
             if match_type == "close":
                 payload = {"lower": 0, "upper": 9}
-            elif match_type == "distant":
-                payload = {"lower": 10, "upper": 10}
-            else:
-                payload = {"lower": 0, "upper": 10}
-            try:
-                resp = requests.post(
-                    count_url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    match_count = data.get("count", 0)
-                    if not match_count:
+                try:
+                    resp = requests.post(
+                        count_url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        match_count = data.get("count", 0)
+                        if not match_count:
+                            if this_run == run_id:
+                                show_message("No matches found.")
+                                page.update()
+                            return
+                        total_pages = (match_count + 99) // 100
+                    else:
                         if this_run == run_id:
-                            show_message("No matches found.")
+                            show_message(
+                                "Failed to fetch match count for matches.")
                             page.update()
                         return
-                    total_pages = (match_count + 99) // 100
-                else:
+                except Exception as ex:
                     if this_run == run_id:
-                        show_message(
-                            "Failed to fetch match count for matches.")
+                        show_message(f"Error fetching match count: {ex}")
                         page.update()
                     return
-            except Exception as ex:
-                if this_run == run_id:
-                    show_message(f"Error fetching match count: {ex}")
-                    page.update()
-                return
+            elif match_type == "distant":
+                payload = {"lower": 10, "upper": 10}
+                try:
+                    resp = requests.post(
+                        count_url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        match_count = data.get("count", 0)
+                        if not match_count:
+                            if this_run == run_id:
+                                show_message("No matches found.")
+                                page.update()
+                            return
+                        total_pages = (match_count + 99) // 100
+                    else:
+                        if this_run == run_id:
+                            show_message(
+                                "Failed to fetch match count for matches.")
+                            page.update()
+                        return
+                except Exception as ex:
+                    if this_run == run_id:
+                        show_message(f"Error fetching match count: {ex}")
+                        page.update()
+                    return
+            elif match_type == "custom":
+                try:
+                    lower = int(
+                        custom_min_cm.value) if custom_min_cm.value else 6
+                except Exception:
+                    lower = 6
+                try:
+                    upper = int(
+                        custom_max_cm.value) if custom_max_cm.value else 3490
+                except Exception:
+                    upper = 3490
+                first_url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage=1&sharedDna={lower}-{upper}"
+                try:
+                    resp = requests.get(
+                        first_url, headers=headers, cookies=cookies)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        total_pages = data.get("totalPages")
+                        match_count = data.get("matchCount")
+                        if total_pages is not None:
+                            last_url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={total_pages}&sharedDna={lower}-{upper}"
+                            last_resp = requests.get(
+                                last_url, headers=headers, cookies=cookies)
+                            if last_resp.status_code == 200:
+                                last_data = last_resp.json()
+                                match_list = last_data.get("matchList", [])
+                                if total_pages > 1:
+                                    match_count = (
+                                        total_pages - 1) * 100 + len(match_list)
+                                else:
+                                    match_count = len(match_list)
+                                if not match_count:
+                                    if this_run == run_id:
+                                        show_message("No matches found.")
+                                        page.update()
+                                    return
+                                total_pages = (match_count + 99) // 100
+                            else:
+                                if this_run == run_id:
+                                    show_message(
+                                        "Failed to fetch last page for matches.")
+                                    page.update()
+                                return
+                        elif match_count:
+                            if not match_count:
+                                if this_run == run_id:
+                                    show_message("No matches found.")
+                                    page.update()
+                                return
+                            total_pages = (match_count + 99) // 100
+                        else:
+                            if this_run == run_id:
+                                show_message("No matches found.")
+                                page.update()
+                            return
+                    else:
+                        if this_run == run_id:
+                            show_message(
+                                "Failed to fetch match count for matches.")
+                            page.update()
+                        return
+                except Exception as ex:
+                    if this_run == run_id:
+                        show_message(f"Error fetching match count: {ex}")
+                        page.update()
+                    return
+            else:
+                payload = {"lower": 0, "upper": 10}
+                try:
+                    resp = requests.post(
+                        count_url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        match_count = data.get("count", 0)
+                        if not match_count:
+                            if this_run == run_id:
+                                show_message("No matches found.")
+                                page.update()
+                            return
+                        total_pages = (match_count + 99) // 100
+                    else:
+                        if this_run == run_id:
+                            show_message(
+                                "Failed to fetch match count for matches.")
+                            page.update()
+                        return
+                except Exception as ex:
+                    if this_run == run_id:
+                        show_message(f"Error fetching match count: {ex}")
+                        page.update()
+                    return
             import sys
             try:
                 max_matches = int(number_input.value)
@@ -475,11 +744,28 @@ def main(page: ft.Page):
                 # Show processing label for each page fetch (page fetching phase)
                 processing_status_text.value = f"Fetching page {page_num}/{needed_pages}..."
                 page.update()
-                # Build URL based on match type
+                # Build URL based on match type (refactored for clarity)
                 if match_type == "distant":
-                    url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}&sharedDna=distantMatches"
+                    shared_dna = "distantMatches"
                 elif match_type == "close":
-                    url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}&sharedDna=closeMatches"
+                    shared_dna = "closeMatches"
+                elif match_type == "custom":
+                    try:
+                        lower = int(
+                            custom_min_cm.value) if custom_min_cm.value else 6
+                    except Exception:
+                        lower = 6
+                    try:
+                        upper = int(
+                            custom_max_cm.value) if custom_max_cm.value else 3490
+                    except Exception:
+                        upper = 3490
+                    shared_dna = f"{lower}-{upper}"
+                else:
+                    shared_dna = None
+
+                if shared_dna:
+                    url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}&sharedDna={shared_dna}"
                 else:
                     url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}"
                 try:
@@ -746,6 +1032,11 @@ def main(page: ft.Page):
         ft.Row([auth_btn, clear_btn]),
         test_dropdown,
         match_type_radio,
+        # Show custom cM fields directly under the radio group
+        ft.Row([
+            custom_min_cm,
+            custom_max_cm
+        ], alignment="start", spacing=10),
         ft.Row([
             number_input,
             get_matches_btn
