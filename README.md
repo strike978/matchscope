@@ -4,17 +4,18 @@
 
 # MatchScope – AncestryDNA Edition
 
-**Version:** 0.1.5-alpha
+**Version:** 0.5-BETA
 
 A modern desktop app (built with Flet) for extracting, analyzing, and visualizing your AncestryDNA matches—including detailed ethnicity region breakdowns for each match. MatchScope features a responsive UI, real-time progress, robust CSV export, ethnicity bar charts, pause/resume controls, support for multiple test kits, and safe, local-only data handling.
 
-## ⚠️ Alpha Software Notice
+## ⚠️ Beta Software Notice
 
-This is alpha software with a technical authentication method. Users must manually extract their browser cookies from the Network tab of their logged-in Ancestry.com session and paste them into the app.
+This is beta software with a technical authentication method. Users must manually extract their browser cookies from the Network tab of their logged-in Ancestry.com session and paste them into the app.
 
 ## Features
 
 - **Comprehensive Match Retrieval**: Extract DNA match data including names, sample IDs, and shared centimorgans
+- **Advanced Custom Filtering**: Specify custom centimorgan (cM) ranges and filter matches with greater flexibility.
 - **Ethnicity Bar Charts**: Visualize ethnicity regions for each match in real time
 - **Smart CSV Export**: Progressive saving with automatic column management
 - **Pause/Resume**: Control processing at any time
@@ -135,11 +136,12 @@ Planned features for future releases:
 
 - Enhanced progress persistence for interruption recovery
 - Leeds Method support
-- Advanced filtering and search capabilities
+- Additional advanced filtering and search capabilities
+- More export formats and reporting options
 
 ## Contributing
 
-This is an alpha release. Bug reports and feature requests are welcome!
+This is a beta release. Bug reports and feature requests are welcome!
 
 ## Disclaimer
 

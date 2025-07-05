@@ -2,6 +2,31 @@
   <img src="icon.png" alt="MatchScope Logo" width="64" height="64">
 </div>
 
+## [0.5-BETA] - 2025-07-05
+
+### Major Changes
+
+- **BETA Release:**
+
+  - Version bump to 0.5-BETA, marking the transition from alpha to beta status.
+  - Improved stability, reliability, and readiness for broader user testing.
+
+- **Advanced Custom Filtering:**
+  - Users can now specify custom centimorgan (cM) ranges and filter matches with greater flexibility, making it easier to target specific match types.
+
+### Notable Updates
+
+- **UI/UX Improvements:**
+
+  - Polished interface and workflow for a smoother user experience.
+  - Improved error messages and feedback throughout the app.
+  - Version string and documentation updated to reflect BETA status.
+
+- **Performance & Bug Fixes:**
+  - Minor bug fixes and optimizations for better performance and reliability.
+
+---
+
 ## [0.1.5-alpha] - 2025-07-04
 
 ### Major Changes

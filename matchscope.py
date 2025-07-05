@@ -159,7 +159,7 @@ def get_csrf_token(cookies):
     return None
 
 
-VERSION = "0.1.5-alpha"
+VERSION = "0.5-BETA"
 
 
 def main(page: ft.Page):
