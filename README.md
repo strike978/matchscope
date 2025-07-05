@@ -166,7 +166,3 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 **Commercial Licensing:** For commercial use or proprietary applications,
 please contact Omar Nunez for alternative licensing arrangements.
-
----
-
-**Note**: This is alpha software. The authentication method will be improved in future versions to provide a more user-friendly experience.
