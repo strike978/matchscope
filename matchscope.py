@@ -195,6 +195,27 @@ def main(page: ft.Page):
     processing_status_text = ft.Text(value="", size=16, selectable=False)
     test_dropdown = ft.Dropdown(
         label="Select DNA Test", options=[], visible=False, width=400)
+    # Radio buttons for match type
+    # Store match counts for each type
+    match_type_counts = {"all": None, "close": None, "distant": None}
+
+    def get_match_type_label(mt):
+        base = {
+            "all": "All matches",
+            "close": "Close matches (4th cousin or closer)",
+            "distant": "Distant matches"
+        }[mt]
+        count = match_type_counts.get(mt)
+        return f"{base} ({count if count is not None else '...'})"
+    match_type_radio = ft.RadioGroup(
+        content=ft.Column([
+            ft.Radio(value="all", label=get_match_type_label("all")),
+            ft.Radio(value="close", label=get_match_type_label("close")),
+            ft.Radio(value="distant", label=get_match_type_label("distant"))
+        ]),
+        value="all",
+        visible=False
+    )
     number_input = ft.TextField(
         label="Number",
         value="50",
@@ -232,8 +253,7 @@ def main(page: ft.Page):
         processing_status_text.value = ""
         test_dropdown.options = []
         test_dropdown.visible = False
-        match_count_number.value = ""
-        match_count_number.visible = False
+        # removed match_count_number
         number_input.value = "50"
         number_input.visible = False
         page.update()
@@ -278,7 +298,8 @@ def main(page: ft.Page):
             resp = requests.get(url, headers=test_headers, cookies=cookies)
             tests_json = resp.json()
             nonlocal tests_data
-            tests_data = {(t.get('testGuid') or t.get('subjectName'))                          : t for t in tests_json.get('dnaSamplesData', [])}
+            tests_data = {(t.get('testGuid') or t.get('subjectName'))
+                           : t for t in tests_json.get('dnaSamplesData', [])}
             test_dropdown.options = [ft.dropdown.Option(key=k, text=t.get(
                 'subjectName') or k) for k, t in tests_data.items()]
         except Exception as ex:
@@ -289,24 +310,21 @@ def main(page: ft.Page):
     def dropdown_changed(e):
         selected = test_dropdown.value
         if not selected or selected not in tests_data:
-            match_count_number.value = ""
-            match_count_number.visible = False
-            match_count_label.visible = False
+            # removed match_count_number and match_count_label
             get_matches_btn.visible = False
             number_input.visible = False
             page.update()
             return
         get_matches_btn.visible = True
         number_input.visible = True
+        match_type_radio.visible = True
         fetch_and_show_match_count()
         page.update()
 
     def fetch_and_show_match_count():
         selected = test_dropdown.value
         if not selected or selected not in tests_data:
-            match_count_number.value = ""
-            match_count_number.visible = False
-            match_count_label.visible = False
+            # removed match_count_number and match_count_label
             return
         test_guid = selected
         url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchCount/{test_guid}"
@@ -318,23 +336,39 @@ def main(page: ft.Page):
         csrf_token = get_csrf_token(cookies)
         if csrf_token:
             headers['x-csrf-token'] = csrf_token
-        try:
-            payload = {"lower": 0, "upper": 10}
-            resp = requests.post(
-                url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
-            if resp.status_code == 200:
-                data = resp.json()
-                match_count = data.get("count")
-                match_count_number.value = str(
-                    match_count) if match_count is not None else ""
-                match_count_number.visible = bool(match_count)
-                match_count_label.visible = bool(match_count)
+        # Fetch all 3 match type counts in sequence, update radio labels
+
+        def fetch_count_for_type(mt):
+            if mt == "close":
+                payload = {"lower": 0, "upper": 9}
+            elif mt == "distant":
+                payload = {"lower": 10, "upper": 10}
             else:
-                match_count_label.visible = False
-                show_message("Failed to fetch match count.")
-        except Exception as ex:
-            match_count_label.visible = False
-            show_message(f"Error: {ex}")
+                payload = {"lower": 0, "upper": 10}
+            try:
+                resp = requests.post(
+                    url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data.get("count")
+            except Exception:
+                pass
+            return None
+        for mt in ["all", "close", "distant"]:
+            match_type_counts[mt] = fetch_count_for_type(mt)
+        # Update radio labels
+        match_type_radio.content.controls[0].label = get_match_type_label(
+            "all")
+        match_type_radio.content.controls[1].label = get_match_type_label(
+            "close")
+        match_type_radio.content.controls[2].label = get_match_type_label(
+            "distant")
+        # Show count for selected type
+        match_type = match_type_radio.value if hasattr(
+            match_type_radio, 'value') else "all"
+        count = match_type_counts.get(match_type)
+        # removed match_count_number and match_count_label
+        page.update()
 
     import threading
     import queue
@@ -370,8 +404,16 @@ def main(page: ft.Page):
             if csrf_token:
                 headers['x-csrf-token'] = csrf_token
             count_url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchCount/{test_guid}"
-            try:
+            # Determine payload based on match type
+            match_type = match_type_radio.value if hasattr(
+                match_type_radio, 'value') else "all"
+            if match_type == "close":
+                payload = {"lower": 0, "upper": 9}
+            elif match_type == "distant":
+                payload = {"lower": 10, "upper": 10}
+            else:
                 payload = {"lower": 0, "upper": 10}
+            try:
                 resp = requests.post(
                     count_url, headers=headers, cookies=cookies, json=payload, allow_redirects=False)
                 if resp.status_code == 200:
@@ -433,7 +475,13 @@ def main(page: ft.Page):
                 # Show processing label for each page fetch (page fetching phase)
                 processing_status_text.value = f"Fetching page {page_num}/{needed_pages}..."
                 page.update()
-                url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}"
+                # Build URL based on match type
+                if match_type == "distant":
+                    url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}&sharedDna=distantMatches"
+                elif match_type == "close":
+                    url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}&sharedDna=closeMatches"
+                else:
+                    url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}"
                 try:
                     resp = requests.get(url, headers=headers, cookies=cookies)
                     if resp.status_code == 200:
@@ -692,21 +740,16 @@ def main(page: ft.Page):
     # Wrap all UI elements in a scrollable Column inside an Expanded Container so the whole app and output area can scroll if content overflows
     # Place match_count_text and "Matches" label to the left of number_input
 
-    match_count_label = ft.Text("Matches:", size=16, visible=False)
-    match_count_number = ft.Text(value="", size=16, visible=False)
-
-    match_count_row = ft.Row([
-        match_count_label,
-        match_count_number,
-        number_input,
-        get_matches_btn
-    ], alignment="start", spacing=10)
-
+    # Remove match count label and number from UI
     main_column = ft.Column([
         text_area,
         ft.Row([auth_btn, clear_btn]),
         test_dropdown,
-        match_count_row,
+        match_type_radio,
+        ft.Row([
+            number_input,
+            get_matches_btn
+        ], alignment="start", spacing=10),
         progress_bar,
         processing_status_text,
         ft.Row([pause_btn, resume_btn], alignment="start", spacing=10),
