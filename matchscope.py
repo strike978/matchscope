@@ -1048,19 +1048,19 @@ def main(page: ft.Page):
                                 sampleB.get("communities", []))
                             # Only proceed if sampleB's communities are exactly the selected set
                             if sampleB_communities != selected_community_ids:
-                                processing_status_text.value = f"Skipping ({sample_id}): communities do not match selection"
+                                processing_status_text.value = f"Skipping {i+1}/{len(match_list_accum)} ({sample_id}): communities do not match selection"
                                 page.update()
                                 time.sleep(2.5)
                                 # SKIP: do not save to CSV or process further
                                 continue
                         else:
-                            processing_status_text.value = f"Skipping ({sample_id}): failed to fetch communities"
+                            processing_status_text.value = f"Skipping {i+1}/{len(match_list_accum)} ({sample_id}): failed to fetch communities"
                             page.update()
                             time.sleep(2.5)
                             # SKIP: do not save to CSV or process further
                             continue
                     except Exception as ex:
-                        processing_status_text.value = f"Skipping ({sample_id}): error fetching communities"
+                        processing_status_text.value = f"Skipping {i+1}/{len(match_list_accum)} ({sample_id}): error fetching communities"
                         page.update()
                         time.sleep(2.5)
                         # SKIP: do not save to CSV or process further
