@@ -377,7 +377,8 @@ def main(page: ft.Page):
             resp = requests.get(url, headers=test_headers, cookies=cookies)
             tests_json = resp.json()
             nonlocal tests_data
-            tests_data = {(t.get('testGuid') or t.get('subjectName'))                          : t for t in tests_json.get('dnaSamplesData', [])}
+            tests_data = {(t.get('testGuid') or t.get('subjectName'))
+                           : t for t in tests_json.get('dnaSamplesData', [])}
             test_dropdown.options = [ft.dropdown.Option(key=k, text=t.get(
                 'subjectName') or k) for k, t in tests_data.items()]
         except Exception as ex:
@@ -1061,6 +1062,23 @@ def main(page: ft.Page):
                             if all_below:
                                 custom_cm_early_exit = True
                     for match in match_list:
+                        # --- PAUSE CHECK: Make per-match pause responsive ---
+                        while pause_event.is_set():
+                            resume_btn.visible = True
+                            pause_btn.visible = False
+                            processing_status_text.value = "Paused. Click Resume to continue."
+                            page.update()
+                            resume_event.wait()
+                        # Check for cancellation after pause
+                        if this_run != run_id:
+                            if threading.current_thread() == matches_thread:
+                                progress_bar.visible = False
+                                processing_status_text.value = "Run cancelled."
+                                time_left_text.value = ""
+                                pause_btn.visible = False
+                                resume_btn.visible = False
+                                page.update()
+                            return
                         profile = match.get("matchProfile", {})
                         display_name = profile.get("displayName", "?")
                         sample_id = match.get("sampleId", "?")
@@ -1349,25 +1367,32 @@ def main(page: ft.Page):
     get_matches_btn.on_click = get_matches_clicked
 
     def pause_clicked(e):
+        import time
         pause_event.set()
-        resume_event.clear()
         pause_btn.visible = False
         resume_btn.visible = True
+        processing_status_text.value = "Paused. Click Resume to continue."
         page.update()
+        # Force UI update and allow the processing thread to hit the pause check quickly
+        time.sleep(0.05)
 
     def resume_clicked(e):
-        pause_event.clear()
-        resume_event.set()
-        pause_btn.visible = True
-        resume_btn.visible = False
-        page.update()
+        if pause_event.is_set():
+            pause_event.clear()
+            resume_btn.visible = False
+            pause_btn.visible = True
+            processing_status_text.value = "Resuming..."
+            page.update()
 
     pause_btn.on_click = pause_clicked
     resume_btn.on_click = resume_clicked
-
-    # Wrap all UI elements in a scrollable Column inside an Expanded Container so the whole app and output area can scroll if content overflows
-    # Place match_count_text and "Matches" label to the left of number_input
-
+    # (REMOVED BAD nonlocal STATEMENT)
+    # Remove any code that sets pause/resume button visibility or status at startup
+    pause_btn.visible = False
+    resume_btn.visible = False
+    processing_status_text.value = ""
+    page.update()
+    # Only show Pause button when processing is started (handled in get_matches_clicked)
     # Remove match count label and number from UI
     match_options_title = ft.Row([
         ft.Icon(name=ft.Icons.TUNE, color="#1565c0", size=26),
