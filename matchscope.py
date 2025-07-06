@@ -383,9 +383,13 @@ def main(page: ft.Page):
         page.update()
 
     # Communities filter group: label and checkboxes inside a Card with border
-    communities_checkbox_label = ft.Text(
-        "Communities Filter: Grab matches with ONLY the selected communities",
-        size=16, weight=ft.FontWeight.BOLD, visible=False)
+    communities_checkbox_label = ft.Row([
+        ft.Icon(name=ft.Icons.GROUPS, color="#1565c0", size=26),
+        ft.Text(
+            "Communities Filter: Grab matches with ONLY the selected communities",
+            size=16, weight=ft.FontWeight.BOLD, visible=True
+        )
+    ], visible=False, spacing=10)
     communities_checkbox_column = ft.Column(
         controls=[], visible=False, spacing=4)
     communities_filter_group = ft.Card(
@@ -1206,12 +1210,15 @@ def main(page: ft.Page):
     # Place match_count_text and "Matches" label to the left of number_input
 
     # Remove match count label and number from UI
-    match_options_title = ft.Text(
-        "Match Options",
-        size=16,
-        weight=ft.FontWeight.BOLD,
-        visible=True
-    )
+    match_options_title = ft.Row([
+        ft.Icon(name=ft.Icons.TUNE, color="#1565c0", size=26),
+        ft.Text(
+            "Match Options",
+            size=16,
+            weight=ft.FontWeight.BOLD,
+            visible=True
+        )
+    ], spacing=10)
     match_options_card = ft.Card(
         content=ft.Container(
             content=ft.Column([
