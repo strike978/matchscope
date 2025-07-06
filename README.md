@@ -4,9 +4,9 @@
 
 # MatchScope – AncestryDNA Edition
 
-**Version:** 0.5-BETA
+**Version:** 0.6-BETA
 
-A modern desktop app (built with Flet) for extracting, analyzing, and visualizing your AncestryDNA matches—including detailed ethnicity region breakdowns for each match. MatchScope features a responsive UI, real-time progress, robust CSV export, ethnicity bar charts, pause/resume controls, support for multiple test kits, and safe, local-only data handling.
+A modern desktop app (built with Flet) for extracting, analyzing, and visualizing your AncestryDNA matches—including detailed ethnicity region breakdowns for each match. MatchScope features a responsive UI, real-time progress, robust CSV export, ethnicity bar charts, pause/resume controls, support for multiple test kits, community filtering, and safe, local-only data handling.
 
 ## ⚠️ Beta Software Notice
 
@@ -15,12 +15,13 @@ This is beta software with a technical authentication method. Users must manuall
 ## Features
 
 - **Comprehensive Match Retrieval**: Extract DNA match data including names, sample IDs, and shared centimorgans
-- **Advanced Custom Filtering**: Specify custom centimorgan (cM) ranges and filter matches with greater flexibility.
+- **Advanced Custom Filtering**: Specify custom centimorgan (cM) ranges and filter matches with greater flexibility
+- **Community Filtering**: Filter matches by specific communities (genetic groups) for targeted analysis
 - **Ethnicity Bar Charts**: Visualize ethnicity regions for each match in real time
 - **Smart CSV Export**: Progressive saving with automatic column management
 - **Pause/Resume**: Control processing at any time
 - **Multiple Test Support**: Analyze multiple DNA kits per account
-- **Live Progress**: Real-time status and progress bar
+- **Live Progress**: Real-time status and progress bar with time estimates
 
 ## Requirements
 
@@ -58,15 +59,22 @@ This is beta software with a technical authentication method. Users must manuall
 
 1. Click "Authenticate" to verify your session
 2. Select which DNA test to analyze (if you have multiple)
-3. Set how many matches to retrieve (default: 50)
-4. Click "Get Matches" to start the retrieval process
+3. **Community Filtering (Optional)**: Select specific communities to filter matches by genetic groups
+4. **Match Type Selection**: Choose from:
+   - All matches
+   - Close matches (4th cousin or closer)
+   - Distant matches
+   - Custom centimorgan range (specify min/max cM values)
+5. Set how many matches to retrieve (default: 50)
+6. Click "Get Matches" to start the retrieval process
 
 ### Step 3: Monitor Progress
 
-- Watch real-time status and progress bar in the application
+- Watch real-time status and progress bar with time estimates in the application
 - Use Pause/Resume to control the process (buttons appear only during processing)
 - View ethnicity region bar charts for each match as they're processed
 - Data is progressively saved to a timestamped CSV during retrieval
+- Community filtering automatically skips matches that don't meet the selected criteria
 
 ## Output Format
 
@@ -98,6 +106,14 @@ Example: `matches_ABC123_20250704.csv`
 - 2.5-second delay between API requests to respect Ancestry's servers
 - Pause/resume functionality for long-running operations
 - All UI updates are performed safely from the background thread
+- Time estimation for completion based on current processing speed
+
+### Community Filtering
+
+- Filter matches by specific genetic communities/populations
+- Only processes matches that belong to the selected communities
+- Automatically skips matches that don't meet community criteria
+- Improves targeted analysis for specific genetic groups
 
 ### Data Integrity
 

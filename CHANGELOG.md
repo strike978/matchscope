@@ -2,6 +2,64 @@
   <img src="icon.png" alt="MatchScope Logo" width="64" height="64">
 </div>
 
+## [0.6-BETA] - 2025-07-06
+
+### Major Changes
+
+- **Enhanced Beta Release:**
+
+  - Version bump to 0.6-BETA with significant new features
+  - Continued refinement and improvement while maintaining beta status
+  - Enhanced functionality for advanced users
+
+- **Community Filtering:**
+  - **NEW:** Added comprehensive community filtering functionality
+  - Users can now filter matches by specific genetic communities/populations
+  - Automatically fetches available communities for each DNA test
+  - Smart filtering skips matches that don't belong to selected communities
+  - Improves targeted analysis for specific genetic groups
+
+### UI/UX Improvements
+
+- **Enhanced Match Options Interface:**
+
+  - Redesigned match options with improved card-based layout
+  - Better organization of filtering controls
+  - Cleaner visual separation between different option groups
+
+- **Time Estimation:**
+
+  - **NEW:** Added estimated time remaining for both page fetching and match processing phases
+  - Real-time updates based on current processing speed
+  - Better user feedback during long-running operations
+
+- **Progress Indicators:**
+  - Improved progress tracking with separate phases for fetching and processing
+  - More detailed status messages throughout the workflow
+  - Better visual feedback for user actions
+
+### Technical Improvements
+
+- **API Integration:**
+
+  - Integrated sharedmigrations endpoint for community data retrieval
+  - Enhanced error handling for community filtering operations
+  - Improved robustness of match processing pipeline
+
+- **Performance Optimizations:**
+  - Optimized community filtering logic
+  - Better memory management during large match processing
+  - Improved thread safety for UI updates
+
+### Bug Fixes
+
+- Fixed issues with custom centimorgan range calculations
+- Improved stability during pause/resume operations
+- Better error handling for network timeouts
+- Fixed UI responsiveness during heavy processing
+
+---
+
 ## [0.5-BETA] - 2025-07-05
 
 ### Major Changes
