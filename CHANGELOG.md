@@ -2,6 +2,34 @@
   <img src="icon.png" alt="MatchScope Logo" width="64" height="64">
 </div>
 
+## [0.8-BETA] - 2025-07-06
+
+### Major Changes
+
+- **Improved Reliability:**
+
+  - Major bug fixes and error handling improvements for match retrieval and processing
+  - More robust handling of network errors and API failures
+
+- **Community Filtering Enhancements:**
+
+  - Optimized and stabilized community filtering logic
+  - Improved UI feedback and error messages for community selection
+
+- **Pause/Resume Improvements:**
+
+  - Enhanced pause/resume controls for long-running operations
+  - Improved thread safety and UI responsiveness during pausing/resuming
+
+- **Progress Tracking:**
+
+  - More accurate progress bars, time estimates, and status messages
+
+- **UI/UX Polish:**
+  - Smoother experience, clearer error messages, and minor visual improvements
+
+---
+
 ## [0.6-BETA] - 2025-07-06
 
 ### Major Changes

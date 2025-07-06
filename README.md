@@ -4,7 +4,18 @@
 
 # MatchScope – AncestryDNA Edition
 
-**Version:** 0.6-BETA
+**Version:** 0.8-BETA
+
+## What's New in 0.8-BETA
+
+- **Improved Reliability:** Major bug fixes and error handling improvements for match retrieval and processing.
+- **Faster Community Filtering:** Optimized logic for filtering by genetic communities, with better UI feedback and more robust API integration.
+- **Pause/Resume Stability:** Enhanced pause/resume controls for long-running operations, with improved thread safety and UI responsiveness.
+- **Expanded Region Support:** Now supports more ethnicity regions and dynamic CSV column handling for new regions.
+- **Better Progress Tracking:** More accurate progress bars, time estimates, and status messages throughout the workflow.
+- **General UI/UX Polish:** Smoother experience, clearer error messages, and minor visual improvements.
+
+See the [CHANGELOG.md](CHANGELOG.md) for full details.
 
 A modern desktop app (built with Flet) for extracting, analyzing, and visualizing your AncestryDNA matches—including detailed ethnicity region breakdowns for each match. MatchScope features a responsive UI, real-time progress, robust CSV export, ethnicity bar charts, pause/resume controls, support for multiple test kits, community filtering, and safe, local-only data handling.
 
