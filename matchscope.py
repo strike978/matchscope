@@ -164,7 +164,7 @@ VERSION = "0.8-BETA"
 
 def main(page: ft.Page):
     # Centralized delay for all per-match and per-skip waits
-    MATCH_PROCESS_DELAY = 0.3
+    MATCH_PROCESS_DELAY = 2.0
     # Helper to update custom match count label only
 
     def update_custom_match_count_label():
