@@ -163,7 +163,10 @@ VERSION = "0.6-BETA"
 
 
 def main(page: ft.Page):
+    # Centralized delay for all per-match and per-skip waits
+    MATCH_PROCESS_DELAY = 1.0
     # Helper to update custom match count label only
+
     def update_custom_match_count_label():
         match_type_radio.content.controls[3].label = get_match_type_label(
             "custom")
@@ -374,7 +377,7 @@ def main(page: ft.Page):
             resp = requests.get(url, headers=test_headers, cookies=cookies)
             tests_json = resp.json()
             nonlocal tests_data
-            tests_data = {(t.get('testGuid') or t.get('subjectName')): t for t in tests_json.get('dnaSamplesData', [])}
+            tests_data = {(t.get('testGuid') or t.get('subjectName'))                          : t for t in tests_json.get('dnaSamplesData', [])}
             test_dropdown.options = [ft.dropdown.Option(key=k, text=t.get(
                 'subjectName') or k) for k, t in tests_data.items()]
         except Exception as ex:
@@ -645,9 +648,19 @@ def main(page: ft.Page):
     import queue
 
     def get_matches_clicked(e):
+        import time
         nonlocal matches_thread, run_id
+        # Cancel old thread if running by incrementing run_id (thread checks this)
         run_id += 1
         this_run = run_id
+        # No need for global, matches_thread is already nonlocal
+        if matches_thread is not None and matches_thread.is_alive():
+            # Cancel the old run by incrementing run_id (the old thread will exit on next check)
+            processing_status_text.value = "Cancelling previous run..."
+            page.update()
+            # The old thread will see run_id has changed and exit promptly
+            # Optionally, give a short delay to allow the old thread to clean up UI
+            time.sleep(0.2)
         progress_bar.visible = False
         output_cards_grid.controls.clear()
         processing_status_text.value = ""
@@ -659,7 +672,18 @@ def main(page: ft.Page):
         page.update()
 
         def process_matches_thread():
-            # Only update UI if this_run == run_id
+            # Cancel this thread if a new run is started
+            # Cancel this thread if a new run is started
+            if this_run != run_id:
+                # Clean up UI if this thread is being cancelled
+                if threading.current_thread() == matches_thread:
+                    progress_bar.visible = False
+                    processing_status_text.value = "Run cancelled."
+                    time_left_text.value = ""
+                    pause_btn.visible = False
+                    resume_btn.visible = False
+                    page.update()
+                return
             selected = test_dropdown.value
             if not selected or selected not in tests_data:
                 if this_run == run_id:
@@ -828,6 +852,7 @@ def main(page: ft.Page):
             printed = 0
             import time
             import csv
+            printed = 0
             all_region_labels = set()
             matches_data = []
             import datetime
@@ -835,34 +860,135 @@ def main(page: ft.Page):
             csv_filename = f"matches_{test_guid}_{today_str}.csv"
             match_list_accum = []
             # Step 1: Fetch matches (as before, but accumulate for next step)
-            # Calculate how many pages are actually needed for the requested max_matches
-            needed_pages = (max_matches + 99) // 100
+            # We want to keep fetching pages until we have enough matches that pass the communities filter, or run out of pages
+            fetched_pages = 0
+            total_fetched_pages = 0
+            page_num = 1
+            start_time = None
             # Show pause/resume buttons now that we're starting fetching
             if this_run == run_id:
                 pause_btn.visible = True
                 resume_btn.visible = False
                 page.update()
-            for page_num in range(1, min(total_pages, needed_pages) + 1):
-                if printed >= max_matches:
-                    break
+            # We'll keep a set of sample_ids we've already seen to avoid duplicates if we go past needed_pages
+            seen_sample_ids = set()
+
+            # Move append_to_csv_smart definition here so it is available before use
+            def append_to_csv_smart(match_data, all_region_labels, filename, is_first_match=False):
+                import os
+                import csv
+                current_regions = sorted(all_region_labels)
+                header = ["Display Name", "Sample ID",
+                          "sharedCM"] + current_regions
+                if is_first_match or not os.path.exists(filename):
+                    with open(filename, "w", newline='', encoding="utf-8") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(header)
+                        row = [match_data.get("display_name", ""), match_data.get(
+                            "sample_id", ""), match_data.get("sharedCM", "")]
+                        region_percents = match_data.get("regions", {})
+                        for label in current_regions:
+                            row.append(region_percents.get(label, ""))
+                        writer.writerow(row)
+                else:
+                    existing_header = []
+                    existing_data = []
+                    try:
+                        with open(filename, "r", encoding="utf-8") as f:
+                            reader = csv.reader(f)
+                            existing_header = next(reader, [])
+                            for row in reader:
+                                if row:
+                                    existing_data.append(row)
+                    except Exception as e:
+                        print(f"Error reading existing CSV: {e}")
+                        existing_header = []
+                        existing_data = []
+                    existing_regions = set(existing_header[3:]) if len(
+                        existing_header) > 3 else set()
+                    new_regions = set(current_regions) - existing_regions
+                    if new_regions:
+                        print(
+                            f"Rewriting CSV with {len(new_regions)} new columns: {sorted(new_regions)}")
+                        with open(filename, "w", newline='', encoding="utf-8") as f:
+                            writer = csv.writer(f)
+                            writer.writerow(header)
+                            for row in existing_data:
+                                if len(row) >= 3:
+                                    new_row = row[:3]
+                                    old_regions = existing_header[3:] if len(
+                                        existing_header) > 3 else []
+                                    old_region_data = row[3:] if len(
+                                        row) > 3 else []
+                                    old_data_map = {}
+                                    for i, region in enumerate(old_regions):
+                                        if i < len(old_region_data):
+                                            old_data_map[region] = old_region_data[i]
+                                    for region in current_regions:
+                                        new_row.append(
+                                            old_data_map.get(region, ""))
+                                    writer.writerow(new_row)
+                            row = [match_data.get("display_name", ""), match_data.get(
+                                "sample_id", ""), match_data.get("sharedCM", "")]
+                            region_percents = match_data.get("regions", {})
+                            for label in current_regions:
+                                row.append(region_percents.get(label, ""))
+                            writer.writerow(row)
+                    else:
+                        with open(filename, "a", newline='', encoding="utf-8") as f:
+                            writer = csv.writer(f)
+                            row = [match_data.get("display_name", ""), match_data.get(
+                                "sample_id", ""), match_data.get("sharedCM", "")]
+                            region_percents = match_data.get("regions", {})
+                            for label in current_regions:
+                                row.append(region_percents.get(label, ""))
+                            writer.writerow(row)
+
+            # --- Combined fetch and process loop ---
+            matches_written = 0
+            page_num = 1
+            seen_sample_ids = set()
+            match_start_time = None
+            # Always try to fetch more pages if we haven't reached max_matches, even if total_pages is reached (in case of filtering)
+            # We'll keep fetching until we run out of pages (no more data returned), or reach max_matches
+            while matches_written < max_matches:
                 # Pause/Resume logic for page fetching
+                # Check for cancellation at the start of each page
+                if this_run != run_id:
+                    if threading.current_thread() == matches_thread:
+                        progress_bar.visible = False
+                        processing_status_text.value = "Run cancelled."
+                        time_left_text.value = ""
+                        pause_btn.visible = False
+                        resume_btn.visible = False
+                        page.update()
+                    return
                 while pause_event.is_set():
                     resume_btn.visible = True
                     pause_btn.visible = False
                     page.update()
                     resume_event.wait()
+                # Check for cancellation after pause
+                if this_run != run_id:
+                    if threading.current_thread() == matches_thread:
+                        progress_bar.visible = False
+                        processing_status_text.value = "Run cancelled."
+                        time_left_text.value = ""
+                        pause_btn.visible = False
+                        resume_btn.visible = False
+                        page.update()
+                    return
                 resume_btn.visible = False
                 pause_btn.visible = True
                 # Progress bar for page fetching
                 progress_bar.visible = True
-                progress_bar.value = page_num / needed_pages
-                # Show processing label for each page fetch (page fetching phase)
-                processing_status_text.value = f"Fetching page {page_num}/{needed_pages}..."
-                # Estimate time left (page fetching phase)
+                progress_bar.value = min(
+                    1.0, matches_written / max_matches) if max_matches > 0 else 0
+                processing_status_text.value = f"Fetching page {page_num} (written {matches_written}/{max_matches} matches)..."
                 if page_num > 1:
                     elapsed = time.time() - start_time
                     avg_time_per_page = elapsed / (page_num - 1)
-                    pages_left = min(total_pages, needed_pages) - page_num + 1
+                    pages_left = total_pages - page_num + 1
                     est_time_left = int(avg_time_per_page * pages_left)
                     mins, secs = divmod(est_time_left, 60)
                     time_left_text.value = f"Estimated time left: {mins}m {secs}s"
@@ -894,35 +1020,242 @@ def main(page: ft.Page):
                     url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}&sharedDna={shared_dna}"
                 else:
                     url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}"
-                try:
-                    resp = requests.get(url, headers=headers, cookies=cookies)
-                    if resp.status_code == 200:
-                        matches_json = resp.json()
-                        match_list = matches_json.get("matchList", [])
-                        for match in match_list:
-                            if printed >= max_matches:
-                                break
-                            profile = match.get("matchProfile", {})
-                            display_name = profile.get("displayName", "?")
-                            sample_id = match.get("sampleId", "?")
-                            shared_cm = match.get("relationship", {}).get(
-                                "sharedCentimorgans", "")
-                            match_list_accum.append({
-                                "display_name": display_name,
-                                "sample_id": sample_id,
-                                "sharedCM": shared_cm
-                            })
-                            print(f"{printed+1}. {display_name} | {sample_id}")
-                            sys.stdout.flush()
-                            printed += 1
-                    else:
-                        print(f"Failed to fetch matches for page {page_num}")
-                        sys.stdout.flush()
-                except Exception as ex:
-                    print(f"Error fetching matches for page {page_num}: {ex}")
+
+                # --- Stop if we've reached the last page (avoid infinite fetch) ---
+                if 'total_pages' in locals() and page_num > total_pages:
+                    print(
+                        f"[INFO] Reached last page: page_num={page_num} > total_pages={total_pages}. Stopping fetch loop.")
+                    break
+
+                resp = requests.get(url, headers=headers, cookies=cookies)
+                if resp.status_code == 200:
+                    matches_json = resp.json()
+                    match_list = matches_json.get("matchList", [])
+                    # If no matches returned, break (no more pages)
+                    if not match_list:
+                        break
+                    # Print display name and sample id for all matches in this page
+                    print(f"[PAGE] Retrieved {len(match_list)} matches:")
+                    for idx, match in enumerate(match_list, 1):
+                        profile = match.get("matchProfile", {})
+                        display_name = profile.get("displayName", "?")
+                        sample_id = match.get("sampleId", "?")
+                        print(
+                            f"  {idx}. {display_name} (Sample ID: {sample_id})")
+                    # --- Custom cM: Early exit if all matches in this page AND the page is full (100) are below lower bound ---
+                    custom_cm_early_exit = False
+                    if match_type == "custom":
+                        # Only stop if the page is full (100) and all are below lower
+                        if len(match_list) == 100:
+                            all_below = True
+                            for match in match_list:
+                                shared_cm_val = match.get("relationship", {}).get(
+                                    "sharedCentimorgans", None)
+                                try:
+                                    shared_cm_val = float(shared_cm_val)
+                                except Exception:
+                                    shared_cm_val = None
+                                if shared_cm_val is not None and shared_cm_val >= lower:
+                                    all_below = False
+                                    break
+                            if all_below:
+                                custom_cm_early_exit = True
+                    for match in match_list:
+                        profile = match.get("matchProfile", {})
+                        display_name = profile.get("displayName", "?")
+                        sample_id = match.get("sampleId", "?")
+                        shared_cm = match.get("relationship", {}).get(
+                            "sharedCentimorgans", "")
+                        # Only process if not already seen
+                        if this_run != run_id:
+                            if threading.current_thread() == matches_thread:
+                                progress_bar.visible = False
+                                processing_status_text.value = "Run cancelled."
+                                time_left_text.value = ""
+                                pause_btn.visible = False
+                                resume_btn.visible = False
+                                page.update()
+                            return
+                        if sample_id in seen_sample_ids:
+                            continue
+                        seen_sample_ids.add(sample_id)
+                        # ...existing code for communities filter, ethnicity, CSV, UI, etc...
+                        # --- Communities filter using sharedmigrations endpoint ---
+                        selected_community_ids = set()
+                        if communities_checkbox_column.visible:
+                            for cb in communities_checkbox_column.controls:
+                                if hasattr(cb, 'value') and cb.value and hasattr(cb, 'data') and cb.data and 'id' in cb.data:
+                                    selected_community_ids.add(
+                                        cb.data['id'])
+
+                        skip_for_communities = False
+                        if selected_community_ids:
+                            migrations_url = f"https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/sharedmigrations"
+                            try:
+                                mig_resp = requests.get(
+                                    migrations_url, headers=headers, cookies=cookies)
+                                if mig_resp.status_code == 200:
+                                    mig_json = mig_resp.json()
+                                    sampleB = mig_json.get("sampleB", {})
+                                    sampleB_communities = set(
+                                        sampleB.get("communities", []))
+                                    if sampleB_communities != selected_community_ids:
+                                        processing_status_text.value = f"Skipping ({sample_id}): communities do not match selection"
+                                        page.update()
+                                        time.sleep(MATCH_PROCESS_DELAY)
+                                        continue
+                                else:
+                                    processing_status_text.value = f"Skipping ({sample_id}): failed to fetch communities"
+                                    page.update()
+                                    time.sleep(MATCH_PROCESS_DELAY)
+                                    continue
+                            except Exception as ex:
+                                processing_status_text.value = f"Skipping ({sample_id}): error fetching communities"
+                                page.update()
+                                time.sleep(MATCH_PROCESS_DELAY)
+                                continue
+
+                        # --- Ethnicity fetch and CSV write ---
+                        # Update progress bar and status for processing phase
+                        processing_status_text.value = f"Processing match {matches_written+1}/{max_matches}: ({sample_id})..."
+                        # Estimate time left (processing phase)
+                        if matches_written == 0:
+                            match_start_time = time.time()
+                            time_left_text.value = ""
+                        elif match_start_time is not None:
+                            elapsed = time.time() - match_start_time
+                            avg_time_per_match = elapsed / matches_written
+                            matches_left = max_matches - matches_written
+                            est_time_left = int(
+                                avg_time_per_match * matches_left)
+                            mins, secs = divmod(est_time_left, 60)
+                            time_left_text.value = f"Estimated time left: {mins}m {secs}s"
+                        progress_bar.value = (
+                            matches_written+1)/max_matches
+                        progress_bar.visible = True
+                        page.update()
+                        eth_url = f'https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/ethnicity'
+                        region_dict = {}
+                        region_line = ""
+                        try:
+                            eth_resp = requests.get(
+                                eth_url, headers=headers, cookies=cookies)
+                            print(
+                                f"[MATCH {matches_written+1}/{max_matches}] [COMPARE] Response for {sample_id}: {eth_resp.status_code}")
+                            try:
+                                resp_json = eth_resp.json()
+                                if isinstance(resp_json, dict) and "comparisons" in resp_json:
+                                    region_list = []
+                                    for comp in resp_json["comparisons"]:
+                                        if "rightList" in comp:
+                                            for entry in comp["rightList"]:
+                                                rid = entry.get(
+                                                    "resourceId")
+                                                pct = entry.get("percent")
+                                                label = REGION_LABELS.get(
+                                                    str(rid), str(rid))
+                                                print(
+                                                    f"[MATCH {matches_written+1}/{max_matches}] [COMPARE][rightList] resourceId: {rid} ({label}), percent: {pct}")
+                                                if label and pct is not None:
+                                                    region_list.append(
+                                                        (label, pct))
+                                    for label, pct in region_list:
+                                        if label not in region_dict or pct > region_dict[label]:
+                                            region_dict[label] = pct
+                                    all_region_labels.update(
+                                        region_dict.keys())
+                                    if region_dict:
+                                        region_line = ", ".join(f"{lbl}: {pct}%" for lbl, pct in sorted(
+                                            region_dict.items(), key=lambda x: -x[1]))
+                                    else:
+                                        region_line = "No ethnicity data"
+                            except Exception:
+                                print(
+                                    f"[MATCH {matches_written+1}/{max_matches}] [COMPARE] JSON for {sample_id}: <not JSON>")
+                                region_line = "Error parsing ethnicity data"
+                        except Exception as e:
+                            print(
+                                f"[MATCH {matches_written+1}/{max_matches}] [COMPARE] Error for {sample_id}: {e}")
+                            region_line = f"Error fetching ethnicity: {e}"
+                        # Output: Bar chart for regions (sorted by percent descending)
+                        output_cards_grid.controls.clear()
+                        if region_dict:
+                            sorted_regions = sorted(
+                                region_dict.items(), key=lambda x: -x[1])
+                            bars = []
+                            max_label_len = max(
+                                (len(lbl) for lbl, _ in sorted_regions), default=10)
+                            bar_max_width = 500  # px, for 100%
+                            for idx, (lbl, pct) in enumerate(sorted_regions, 1):
+                                bar_width = int(
+                                    bar_max_width * (pct / 100.0))
+                                bars.append(
+                                    ft.Row([
+                                        ft.Text(
+                                            lbl, size=16, width=180, overflow=ft.TextOverflow.ELLIPSIS),
+                                        ft.Container(
+                                            content=ft.Container(
+                                                bgcolor="#1976d2",
+                                                border_radius=6,
+                                                width=bar_width,
+                                                height=28,
+                                                alignment=ft.alignment.center_left,
+                                                padding=ft.padding.only(
+                                                    left=8),
+                                                content=ft.Text(
+                                                    f"{pct}%", size=15, color="#FFFFFF", weight=ft.FontWeight.BOLD)
+                                            ),
+                                            bgcolor="#e3e3e3",
+                                            border_radius=6,
+                                            width=bar_max_width,
+                                            height=28,
+                                            alignment=ft.alignment.center_left,
+                                            margin=ft.margin.only(bottom=6)
+                                        )
+                                    ], alignment="start", spacing=12)
+                                )
+                            output_cards_grid.controls.extend(bars)
+                        else:
+                            output_cards_grid.controls.append(
+                                ft.Row([
+                                    ft.Text("No ethnicity data", size=16)
+                                ], alignment="start")
+                            )
+                        page.update()
+                        match_data = {
+                            "display_name": display_name,
+                            "sample_id": sample_id,
+                            "sharedCM": shared_cm,
+                            "regions": region_dict.copy()
+                        }
+                        matches_data.append(match_data)
+                        try:
+                            append_to_csv_smart(
+                                match_data, all_region_labels, csv_filename, is_first_match=(matches_written == 0))
+                            print(
+                                f"[MATCH {matches_written+1}/{max_matches}] Saved to CSV: {csv_filename}")
+                        except Exception as e:
+                            print(
+                                f"[MATCH {matches_written+1}/{max_matches}] Error saving to CSV: {e}")
+                        matches_written += 1
+                        if matches_written >= max_matches:
+                            break
+                        time.sleep(MATCH_PROCESS_DELAY)
+                    # If we reached max_matches, break outer loop
+                    if matches_written >= max_matches:
+                        break
+
+                    # --- Custom cM: Early exit if all matches in this page AND the page is full (100) are below lower bound ---
+                    # If custom_cm_early_exit is True, break the outer while loop (stop fetching pages)
+                    if custom_cm_early_exit:
+                        break
+                else:
+                    print(f"Failed to fetch matches for page {page_num}")
                     sys.stdout.flush()
-                if printed < max_matches and page_num < min(total_pages, needed_pages):
-                    time.sleep(2.5)
+                page_num += 1
+                # If we didn't reach max_matches, keep going (even if total_pages was reached, as long as new data is returned)
+                if matches_written < max_matches:
+                    time.sleep(MATCH_PROCESS_DELAY)
             # After all pages fetched, clear the processing label for match processing
             processing_status_text.value = ""
             page.update()
@@ -996,180 +1329,6 @@ def main(page: ft.Page):
                             for label in current_regions:
                                 row.append(region_percents.get(label, ""))
                             writer.writerow(row)
-
-            # --- Match processing phase ---
-            match_start_time = None
-            for i, match in enumerate(match_list_accum):
-                if this_run != run_id:
-                    return
-                # Pause/Resume logic
-                while pause_event.is_set():
-                    resume_btn.visible = True
-                    pause_btn.visible = False
-                    page.update()
-                    resume_event.wait()
-                resume_btn.visible = False
-                pause_btn.visible = True
-                page.update()
-                display_name = match["display_name"]
-                sample_id = match["sample_id"]
-                shared_cm = match["sharedCM"]
-                progress_str = f"[{i+1}/{len(match_list_accum)}]"
-
-                progress_bar.visible = True
-                progress_bar.value = (i+1)/len(match_list_accum)
-                # Estimate time left (match processing phase)
-                if i == 0:
-                    match_start_time = time.time()
-                    time_left_text.value = ""
-                elif match_start_time is not None:
-                    elapsed = time.time() - match_start_time
-                    avg_time_per_match = elapsed / i
-                    matches_left = len(match_list_accum) - i
-                    est_time_left = int(avg_time_per_match * matches_left)
-                    mins, secs = divmod(est_time_left, 60)
-                    time_left_text.value = f"Estimated time left: {mins}m {secs}s"
-                page.update()
-
-                # --- Communities filter using sharedmigrations endpoint ---
-                selected_community_ids = set()
-                if communities_checkbox_column.visible:
-                    for cb in communities_checkbox_column.controls:
-                        if hasattr(cb, 'value') and cb.value and hasattr(cb, 'data') and cb.data and 'id' in cb.data:
-                            selected_community_ids.add(cb.data['id'])
-
-                skip_for_communities = False
-                if selected_community_ids:
-                    # Fetch sharedmigrations for this match
-                    migrations_url = f"https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/sharedmigrations"
-                    try:
-                        mig_resp = requests.get(
-                            migrations_url, headers=headers, cookies=cookies)
-                        if mig_resp.status_code == 200:
-                            mig_json = mig_resp.json()
-                            sampleB = mig_json.get("sampleB", {})
-                            sampleB_communities = set(
-                                sampleB.get("communities", []))
-                            # Only proceed if sampleB's communities are exactly the selected set
-                            if sampleB_communities != selected_community_ids:
-                                processing_status_text.value = f"Skipping {i+1}/{len(match_list_accum)} ({sample_id}): communities do not match selection"
-                                page.update()
-                                time.sleep(2.5)
-                                # SKIP: do not save to CSV or process further
-                                continue
-                        else:
-                            processing_status_text.value = f"Skipping {i+1}/{len(match_list_accum)} ({sample_id}): failed to fetch communities"
-                            page.update()
-                            time.sleep(2.5)
-                            # SKIP: do not save to CSV or process further
-                            continue
-                    except Exception as ex:
-                        processing_status_text.value = f"Skipping {i+1}/{len(match_list_accum)} ({sample_id}): error fetching communities"
-                        page.update()
-                        time.sleep(2.5)
-                        # SKIP: do not save to CSV or process further
-                        continue
-
-                processing_status_text.value = f"Processing {i+1}/{len(match_list_accum)}: ({sample_id})..."
-                page.update()
-                url = f'https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/ethnicity'
-                region_dict = {}
-                region_line = ""
-                try:
-                    resp = requests.get(url, headers=headers, cookies=cookies)
-                    print(
-                        f"{progress_str} [COMPARE] Response for {sample_id}: {resp.status_code}")
-                    try:
-                        resp_json = resp.json()
-                        if isinstance(resp_json, dict) and "comparisons" in resp_json:
-                            region_list = []
-                            for comp in resp_json["comparisons"]:
-                                if "rightList" in comp:
-                                    for entry in comp["rightList"]:
-                                        rid = entry.get("resourceId")
-                                        pct = entry.get("percent")
-                                        label = REGION_LABELS.get(
-                                            str(rid), str(rid))
-                                        print(
-                                            f"{progress_str} [COMPARE][rightList] resourceId: {rid} ({label}), percent: {pct}")
-                                        if label and pct is not None:
-                                            region_list.append((label, pct))
-                            for label, pct in region_list:
-                                if label not in region_dict or pct > region_dict[label]:
-                                    region_dict[label] = pct
-                            all_region_labels.update(region_dict.keys())
-                            # Build region summary string for output
-                            if region_dict:
-                                region_line = ", ".join(f"{lbl}: {pct}%" for lbl, pct in sorted(
-                                    region_dict.items(), key=lambda x: -x[1]))
-                            else:
-                                region_line = "No ethnicity data"
-                    except Exception:
-                        print(
-                            f"{progress_str} [COMPARE] JSON for {sample_id}: <not JSON>")
-                        region_line = "Error parsing ethnicity data"
-                except Exception as e:
-                    print(
-                        f"{progress_str} [COMPARE] Error for {sample_id}: {e}")
-                    region_line = f"Error fetching ethnicity: {e}"
-                # Output: Bar chart for regions (sorted by percent descending)
-                output_cards_grid.controls.clear()
-                if region_dict:
-                    sorted_regions = sorted(
-                        region_dict.items(), key=lambda x: -x[1])
-                    bars = []
-                    max_label_len = max((len(lbl)
-                                        for lbl, _ in sorted_regions), default=10)
-                    bar_max_width = 500  # px, for 100%
-                    for idx, (lbl, pct) in enumerate(sorted_regions, 1):
-                        bar_width = int(bar_max_width * (pct / 100.0))
-                        bars.append(
-                            ft.Row([
-                                ft.Text(lbl, size=16, width=180,
-                                        overflow=ft.TextOverflow.ELLIPSIS),
-                                ft.Container(
-                                    content=ft.Container(
-                                        bgcolor="#1976d2",
-                                        border_radius=6,
-                                        width=bar_width,
-                                        height=28,
-                                        alignment=ft.alignment.center_left,
-                                        padding=ft.padding.only(left=8),
-                                        content=ft.Text(
-                                            f"{pct}%", size=15, color="#FFFFFF", weight=ft.FontWeight.BOLD)
-                                    ),
-                                    bgcolor="#e3e3e3",
-                                    border_radius=6,
-                                    width=bar_max_width,
-                                    height=28,
-                                    alignment=ft.alignment.center_left,
-                                    margin=ft.margin.only(bottom=6)
-                                )
-                            ], alignment="start", spacing=12)
-                        )
-                    output_cards_grid.controls.extend(bars)
-                else:
-                    output_cards_grid.controls.append(
-                        ft.Row([
-                            ft.Text("No ethnicity data", size=16)
-                        ], alignment="start")
-                    )
-                page.update()
-                match_data = {
-                    "display_name": display_name,
-                    "sample_id": sample_id,
-                    "sharedCM": shared_cm,
-                    "regions": region_dict.copy()
-                }
-                # Only add to matches_data and CSV if not skipped by communities filter
-                matches_data.append(match_data)
-                try:
-                    append_to_csv_smart(
-                        match_data, all_region_labels, csv_filename, is_first_match=(len(matches_data) == 1))
-                    print(f"{progress_str} Saved to CSV: {csv_filename}")
-                except Exception as e:
-                    print(f"{progress_str} Error saving to CSV: {e}")
-                time.sleep(2.5)
 
             if this_run == run_id:
                 progress_bar.value = 1.0
