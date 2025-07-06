@@ -159,12 +159,12 @@ def get_csrf_token(cookies):
     return None
 
 
-VERSION = "0.7-BETA"
+VERSION = "0.8-BETA"
 
 
 def main(page: ft.Page):
     # Centralized delay for all per-match and per-skip waits
-    MATCH_PROCESS_DELAY = 1.0
+    MATCH_PROCESS_DELAY = 0.3
     # Helper to update custom match count label only
 
     def update_custom_match_count_label():
@@ -672,7 +672,14 @@ def main(page: ft.Page):
         resume_event.set()
         page.update()
 
+        # State for retrying failed match/page
+        retry_match_state = {"pending": False,
+                             "match": None, "match_args": None}
+
         def process_matches_thread():
+            nonlocal retry_match_state
+            # Clear resume_event at start of thread since we set it initially
+            resume_event.clear()
             # Cancel this thread if a new run is started
             # Cancel this thread if a new run is started
             if this_run != run_id:
@@ -969,6 +976,7 @@ def main(page: ft.Page):
                     pause_btn.visible = False
                     page.update()
                     resume_event.wait()
+                    resume_event.clear()  # Clear the event for next pause cycle
                 # Check for cancellation after pause
                 if this_run != run_id:
                     if threading.current_thread() == matches_thread:
@@ -997,45 +1005,122 @@ def main(page: ft.Page):
                     start_time = time.time()
                     time_left_text.value = ""
                 page.update()
-                # Build URL based on match type (refactored for clarity)
-                if match_type == "distant":
-                    shared_dna = "distantMatches"
-                elif match_type == "close":
-                    shared_dna = "closeMatches"
-                elif match_type == "custom":
-                    try:
-                        lower = int(
-                            custom_min_cm.value) if custom_min_cm.value else 6
-                    except Exception:
-                        lower = 6
-                    try:
-                        upper = int(
-                            custom_max_cm.value) if custom_max_cm.value else 3490
-                    except Exception:
-                        upper = 3490
-                    shared_dna = f"{lower}-{upper}"
+
+                # Check if we need to retry a failed request
+                if retry_match_state["pending"]:
+                    if retry_match_state["match"] is not None:
+                        # Retry failed match processing
+                        match = retry_match_state["match"]
+                        eth_url, headers, cookies = retry_match_state["match_args"]
+                        # Skip to the match processing part - we'll handle this in the match loop
+                        pass
+                    elif retry_match_state["match_args"] is not None:
+                        # Retry failed page fetch
+                        url, headers, cookies = retry_match_state["match_args"]
+                        retry_match_state["pending"] = False
+                        retry_match_state["match"] = None
+                        retry_match_state["match_args"] = None
+                        # Try the failed request again
+                        resp = requests.get(
+                            url, headers=headers, cookies=cookies)
+                        if resp.status_code == 200:
+                            try:
+                                matches_json = resp.json()
+                                match_list = matches_json.get("matchList", [])
+                                if match_list:
+                                    # Process this page's matches
+                                    print(
+                                        f"[PAGE RETRY] Retrieved {len(match_list)} matches:")
+                                    for idx, match in enumerate(match_list, 1):
+                                        profile = match.get("matchProfile", {})
+                                        display_name = profile.get(
+                                            "displayName", "?")
+                                        sample_id = match.get("sampleId", "?")
+                                        print(
+                                            f"  {idx}. {display_name} (Sample ID: {sample_id})")
+                                    # Continue with normal processing below
+                                else:
+                                    break
+                            except Exception:
+                                processing_status_text.value = "Still no JSON response for match page. Paused. Click Resume to retry."
+                                page.update()
+                                retry_match_state["pending"] = True
+                                retry_match_state["match"] = None
+                                retry_match_state["match_args"] = (
+                                    url, headers, cookies)
+                                pause_event.set()
+                                continue  # Go back to pause check instead of returning
+                        else:
+                            processing_status_text.value = f"Still failed to fetch matches for page. Paused. Click Resume to retry."
+                            page.update()
+                            retry_match_state["pending"] = True
+                            retry_match_state["match"] = None
+                            retry_match_state["match_args"] = (
+                                url, headers, cookies)
+                            pause_event.set()
+                            continue  # Go back to pause check instead of returning
                 else:
-                    shared_dna = None
+                    # Normal page fetching logic
+                    # Build URL based on match type (refactored for clarity)
+                    if match_type == "distant":
+                        shared_dna = "distantMatches"
+                    elif match_type == "close":
+                        shared_dna = "closeMatches"
+                    elif match_type == "custom":
+                        try:
+                            lower = int(
+                                custom_min_cm.value) if custom_min_cm.value else 6
+                        except Exception:
+                            lower = 6
+                        try:
+                            upper = int(
+                                custom_max_cm.value) if custom_max_cm.value else 3490
+                        except Exception:
+                            upper = 3490
+                        shared_dna = f"{lower}-{upper}"
+                    else:
+                        shared_dna = None
 
-                if shared_dna:
-                    url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}&sharedDna={shared_dna}"
-                else:
-                    url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}"
+                    if shared_dna:
+                        url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}&sharedDna={shared_dna}"
+                    else:
+                        url = f"https://www.ancestry.com/discoveryui-matches/parents/list/api/matchList/{test_guid}?itemsPerPage=100&currentPage={page_num}"
 
-                # --- Stop if we've reached the last page (avoid infinite fetch) ---
-                if 'total_pages' in locals() and page_num > total_pages:
-                    print(
-                        f"[INFO] Reached last page: page_num={page_num} > total_pages={total_pages}. Stopping fetch loop.")
-                    break
+                    # --- Stop if we've reached the last page (avoid infinite fetch) ---
+                    if 'total_pages' in locals() and page_num > total_pages:
+                        print(
+                            f"[INFO] Reached last page: page_num={page_num} > total_pages={total_pages}. Stopping fetch loop.")
+                        break
 
-                resp = requests.get(url, headers=headers, cookies=cookies)
-                if resp.status_code == 200:
-                    matches_json = resp.json()
+                    resp = requests.get(url, headers=headers, cookies=cookies)
+                    if resp.status_code == 200:
+                        try:
+                            matches_json = resp.json()
+                        except Exception:
+                            processing_status_text.value = "No JSON response for match page. Paused. Click Resume to retry."
+                            retry_match_state["pending"] = True
+                            retry_match_state["match"] = None
+                            retry_match_state["match_args"] = (
+                                url, headers, cookies)
+                            pause_event.set()
+                            pause_btn.visible = False
+                            resume_btn.visible = True
+                            page.update()
+                            continue  # Go back to pause check instead of returning
+                    else:
+                        processing_status_text.value = f"Failed to fetch matches for page {page_num}. Paused. Click Resume to retry."
+                        retry_match_state["pending"] = True
+                        retry_match_state["match"] = None
+                        retry_match_state["match_args"] = (
+                            url, headers, cookies)
+                        pause_event.set()
+                        pause_btn.visible = False
+                        resume_btn.visible = True
+                        page.update()
+                        continue  # Go back to pause check instead of returning
                     match_list = matches_json.get("matchList", [])
-                    # If no matches returned, break (no more pages)
                     if not match_list:
                         break
-                    # Print display name and sample id for all matches in this page
                     print(f"[PAGE] Retrieved {len(match_list)} matches:")
                     for idx, match in enumerate(match_list, 1):
                         profile = match.get("matchProfile", {})
@@ -1043,118 +1128,129 @@ def main(page: ft.Page):
                         sample_id = match.get("sampleId", "?")
                         print(
                             f"  {idx}. {display_name} (Sample ID: {sample_id})")
-                    # --- Custom cM: Early exit if all matches in this page AND the page is full (100) are below lower bound ---
-                    custom_cm_early_exit = False
-                    if match_type == "custom":
-                        # Only stop if the page is full (100) and all are below lower
-                        if len(match_list) == 100:
-                            all_below = True
-                            for match in match_list:
-                                shared_cm_val = match.get("relationship", {}).get(
-                                    "sharedCentimorgans", None)
-                                try:
-                                    shared_cm_val = float(shared_cm_val)
-                                except Exception:
-                                    shared_cm_val = None
-                                if shared_cm_val is not None and shared_cm_val >= lower:
-                                    all_below = False
-                                    break
-                            if all_below:
-                                custom_cm_early_exit = True
-                    for match in match_list:
-                        # --- PAUSE CHECK: Make per-match pause responsive ---
-                        while pause_event.is_set():
-                            resume_btn.visible = True
-                            pause_btn.visible = False
-                            processing_status_text.value = "Paused. Click Resume to continue."
-                            page.update()
-                            resume_event.wait()
-                        # Check for cancellation after pause
-                        if this_run != run_id:
-                            if threading.current_thread() == matches_thread:
-                                progress_bar.visible = False
-                                processing_status_text.value = "Run cancelled."
-                                time_left_text.value = ""
-                                pause_btn.visible = False
-                                resume_btn.visible = False
-                                page.update()
-                            return
-                        profile = match.get("matchProfile", {})
-                        display_name = profile.get("displayName", "?")
-                        sample_id = match.get("sampleId", "?")
-                        shared_cm = match.get("relationship", {}).get(
-                            "sharedCentimorgans", "")
-                        # Only process if not already seen
-                        if this_run != run_id:
-                            if threading.current_thread() == matches_thread:
-                                progress_bar.visible = False
-                                processing_status_text.value = "Run cancelled."
-                                time_left_text.value = ""
-                                pause_btn.visible = False
-                                resume_btn.visible = False
-                                page.update()
-                            return
-                        if sample_id in seen_sample_ids:
-                            continue
-                        seen_sample_ids.add(sample_id)
-                        # ...existing code for communities filter, ethnicity, CSV, UI, etc...
-                        # --- Communities filter using sharedmigrations endpoint ---
-                        selected_community_ids = set()
-                        if communities_checkbox_column.visible:
-                            for cb in communities_checkbox_column.controls:
-                                if hasattr(cb, 'value') and cb.value and hasattr(cb, 'data') and cb.data and 'id' in cb.data:
-                                    selected_community_ids.add(
-                                        cb.data['id'])
 
-                        skip_for_communities = False
-                        if selected_community_ids:
-                            migrations_url = f"https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/sharedmigrations"
+                # Process the match_list (either from retry or normal fetch)
+                custom_cm_early_exit = False
+                match_error_break = False  # Flag to track if we broke due to error
+                if match_type == "custom":
+                    if len(match_list) == 100:
+                        all_below = True
+                        for match in match_list:
+                            shared_cm_val = match.get("relationship", {}).get(
+                                "sharedCentimorgans", None)
                             try:
-                                mig_resp = requests.get(
-                                    migrations_url, headers=headers, cookies=cookies)
-                                if mig_resp.status_code == 200:
-                                    mig_json = mig_resp.json()
-                                    sampleB = mig_json.get("sampleB", {})
-                                    sampleB_communities = set(
-                                        sampleB.get("communities", []))
-                                    if sampleB_communities != selected_community_ids:
-                                        processing_status_text.value = f"Skipping ({sample_id}): communities do not match selection"
-                                        page.update()
-                                        time.sleep(MATCH_PROCESS_DELAY)
-                                        continue
-                                else:
-                                    processing_status_text.value = f"Skipping ({sample_id}): failed to fetch communities"
+                                shared_cm_val = float(shared_cm_val)
+                            except Exception:
+                                shared_cm_val = None
+                            if shared_cm_val is not None and shared_cm_val >= lower:
+                                all_below = False
+                                break
+                        if all_below:
+                            custom_cm_early_exit = True
+                match_idx = 0
+                while match_idx < len(match_list):
+                    retrying = False
+                    if retry_match_state["pending"] and retry_match_state["match"] is not None:
+                        match = retry_match_state["match"]
+                        eth_url, headers, cookies = retry_match_state["match_args"]
+                        retry_match_state["pending"] = False
+                        retry_match_state["match"] = None
+                        retry_match_state["match_args"] = None
+                        retrying = True
+                    else:
+                        match = match_list[match_idx]
+
+                    while pause_event.is_set():
+                        resume_btn.visible = True
+                        pause_btn.visible = False
+                        processing_status_text.value = "Paused. Click Resume to continue."
+                        page.update()
+                        resume_event.wait()
+                        resume_event.clear()  # Clear the event for next pause cycle
+                    if this_run != run_id:
+                        if threading.current_thread() == matches_thread:
+                            progress_bar.visible = False
+                            processing_status_text.value = "Run cancelled."
+                            time_left_text.value = ""
+                            pause_btn.visible = False
+                            resume_btn.visible = False
+                            page.update()
+                        return
+                    profile = match.get("matchProfile", {})
+                    display_name = profile.get("displayName", "?")
+                    sample_id = match.get("sampleId", "?")
+                    shared_cm = match.get("relationship", {}).get(
+                        "sharedCentimorgans", "")
+                    if this_run != run_id:
+                        if threading.current_thread() == matches_thread:
+                            progress_bar.visible = False
+                            processing_status_text.value = "Run cancelled."
+                            time_left_text.value = ""
+                            pause_btn.visible = False
+                            resume_btn.visible = False
+                            page.update()
+                        return
+                    if sample_id in seen_sample_ids:
+                        if not retrying:
+                            match_idx += 1
+                        continue
+                    seen_sample_ids.add(sample_id)
+                    # Only increment match_idx if not retrying
+                    if not retrying:
+                        match_idx += 1
+                    # ...existing code for communities filter, ethnicity, CSV, UI, etc...
+                    selected_community_ids = set()
+                    if communities_checkbox_column.visible:
+                        for cb in communities_checkbox_column.controls:
+                            if hasattr(cb, 'value') and cb.value and hasattr(cb, 'data') and cb.data and 'id' in cb.data:
+                                selected_community_ids.add(cb.data['id'])
+
+                    skip_for_communities = False
+                    if selected_community_ids:
+                        migrations_url = f"https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/sharedmigrations"
+                        try:
+                            mig_resp = requests.get(
+                                migrations_url, headers=headers, cookies=cookies)
+                            if mig_resp.status_code == 200:
+                                mig_json = mig_resp.json()
+                                sampleB = mig_json.get("sampleB", {})
+                                sampleB_communities = set(
+                                    sampleB.get("communities", []))
+                                if sampleB_communities != selected_community_ids:
+                                    processing_status_text.value = f"Skipping ({sample_id}): communities do not match selection"
                                     page.update()
                                     time.sleep(MATCH_PROCESS_DELAY)
                                     continue
-                            except Exception as ex:
-                                processing_status_text.value = f"Skipping ({sample_id}): error fetching communities"
+                            else:
+                                processing_status_text.value = f"Skipping ({sample_id}): failed to fetch communities"
                                 page.update()
                                 time.sleep(MATCH_PROCESS_DELAY)
                                 continue
+                        except Exception as ex:
+                            processing_status_text.value = f"Skipping ({sample_id}): error fetching communities"
+                            page.update()
+                            time.sleep(MATCH_PROCESS_DELAY)
+                            continue
 
-                        # --- Ethnicity fetch and CSV write ---
-                        # Update progress bar and status for processing phase
-                        processing_status_text.value = f"Processing match {matches_written+1}/{max_matches}: ({sample_id})..."
-                        # Estimate time left (processing phase)
-                        if matches_written == 0:
-                            match_start_time = time.time()
-                            time_left_text.value = ""
-                        elif match_start_time is not None:
-                            elapsed = time.time() - match_start_time
-                            avg_time_per_match = elapsed / matches_written
-                            matches_left = max_matches - matches_written
-                            est_time_left = int(
-                                avg_time_per_match * matches_left)
-                            mins, secs = divmod(est_time_left, 60)
-                            time_left_text.value = f"Estimated time left: {mins}m {secs}s"
-                        progress_bar.value = (
-                            matches_written+1)/max_matches
-                        progress_bar.visible = True
-                        page.update()
-                        eth_url = f'https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/ethnicity'
-                        region_dict = {}
-                        region_line = ""
+                    # --- Ethnicity fetch and CSV write ---
+                    processing_status_text.value = f"Processing match {matches_written+1}/{max_matches}: ({sample_id})..."
+                    if matches_written == 0:
+                        match_start_time = time.time()
+                        time_left_text.value = ""
+                    elif match_start_time is not None:
+                        elapsed = time.time() - match_start_time
+                        avg_time_per_match = elapsed / matches_written
+                        matches_left = max_matches - matches_written
+                        est_time_left = int(avg_time_per_match * matches_left)
+                        mins, secs = divmod(est_time_left, 60)
+                        time_left_text.value = f"Estimated time left: {mins}m {secs}s"
+                    progress_bar.value = (matches_written+1)/max_matches
+                    progress_bar.visible = True
+                    page.update()
+                    eth_url = f'https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/ethnicity'
+                    region_dict = {}
+                    region_line = ""
+                    while True:
                         try:
                             eth_resp = requests.get(
                                 eth_url, headers=headers, cookies=cookies)
@@ -1162,116 +1258,136 @@ def main(page: ft.Page):
                                 f"[MATCH {matches_written+1}/{max_matches}] [COMPARE] Response for {sample_id}: {eth_resp.status_code}")
                             try:
                                 resp_json = eth_resp.json()
-                                if isinstance(resp_json, dict) and "comparisons" in resp_json:
-                                    region_list = []
-                                    for comp in resp_json["comparisons"]:
-                                        if "rightList" in comp:
-                                            for entry in comp["rightList"]:
-                                                rid = entry.get(
-                                                    "resourceId")
-                                                pct = entry.get("percent")
-                                                label = REGION_LABELS.get(
-                                                    str(rid), str(rid))
-                                                print(
-                                                    f"[MATCH {matches_written+1}/{max_matches}] [COMPARE][rightList] resourceId: {rid} ({label}), percent: {pct}")
-                                                if label and pct is not None:
-                                                    region_list.append(
-                                                        (label, pct))
-                                    for label, pct in region_list:
-                                        if label not in region_dict or pct > region_dict[label]:
-                                            region_dict[label] = pct
-                                    all_region_labels.update(
-                                        region_dict.keys())
-                                    if region_dict:
-                                        region_line = ", ".join(f"{lbl}: {pct}%" for lbl, pct in sorted(
-                                            region_dict.items(), key=lambda x: -x[1]))
-                                    else:
-                                        region_line = "No ethnicity data"
                             except Exception:
-                                print(
-                                    f"[MATCH {matches_written+1}/{max_matches}] [COMPARE] JSON for {sample_id}: <not JSON>")
-                                region_line = "Error parsing ethnicity data"
+                                processing_status_text.value = f"No JSON response for match {sample_id}. Paused. Click Resume to retry."
+                                retry_match_state["pending"] = True
+                                retry_match_state["match"] = match
+                                retry_match_state["match_args"] = (
+                                    eth_url, headers, cookies)
+                                pause_event.set()
+                                pause_btn.visible = False
+                                resume_btn.visible = True
+                                page.update()
+                                # Wait for resume, then retry this match (do not continue outer loop)
+                                while pause_event.is_set():
+                                    resume_btn.visible = True
+                                    pause_btn.visible = False
+                                    processing_status_text.value = "Paused. Click Resume to continue."
+                                    page.update()
+                                    resume_event.wait()
+                                    resume_event.clear()
+                                continue
+                            if isinstance(resp_json, dict) and "comparisons" in resp_json:
+                                region_list = []
+                                for comp in resp_json["comparisons"]:
+                                    if "rightList" in comp:
+                                        for entry in comp["rightList"]:
+                                            rid = entry.get("resourceId")
+                                            pct = entry.get("percent")
+                                            label = REGION_LABELS.get(
+                                                str(rid), str(rid))
+                                            print(
+                                                f"[MATCH {matches_written+1}/{max_matches}] [COMPARE][rightList] resourceId: {rid} ({label}), percent: {pct}")
+                                            if label and pct is not None:
+                                                region_list.append(
+                                                    (label, pct))
+                                for label, pct in region_list:
+                                    if label not in region_dict or pct > region_dict[label]:
+                                        region_dict[label] = pct
+                                all_region_labels.update(region_dict.keys())
+                                if region_dict:
+                                    region_line = ", ".join(f"{lbl}: {pct}%" for lbl, pct in sorted(
+                                        region_dict.items(), key=lambda x: -x[1]))
+                                else:
+                                    region_line = "No ethnicity data"
+                            break  # Success, break out of retry loop
                         except Exception as e:
-                            print(
-                                f"[MATCH {matches_written+1}/{max_matches}] [COMPARE] Error for {sample_id}: {e}")
-                            region_line = f"Error fetching ethnicity: {e}"
-                        # Output: Bar chart for regions (sorted by percent descending)
-                        output_cards_grid.controls.clear()
-                        if region_dict:
-                            sorted_regions = sorted(
-                                region_dict.items(), key=lambda x: -x[1])
-                            bars = []
-                            max_label_len = max(
-                                (len(lbl) for lbl, _ in sorted_regions), default=10)
-                            bar_max_width = 500  # px, for 100%
-                            for idx, (lbl, pct) in enumerate(sorted_regions, 1):
-                                bar_width = int(
-                                    bar_max_width * (pct / 100.0))
-                                bars.append(
-                                    ft.Row([
-                                        ft.Text(
-                                            lbl, size=16, width=180, overflow=ft.TextOverflow.ELLIPSIS),
-                                        ft.Container(
-                                            content=ft.Container(
-                                                bgcolor="#1976d2",
-                                                border_radius=6,
-                                                width=bar_width,
-                                                height=28,
-                                                alignment=ft.alignment.center_left,
-                                                padding=ft.padding.only(
-                                                    left=8),
-                                                content=ft.Text(
-                                                    f"{pct}%", size=15, color="#FFFFFF", weight=ft.FontWeight.BOLD)
-                                            ),
-                                            bgcolor="#e3e3e3",
+                            processing_status_text.value = f"Error fetching match {sample_id}. Paused. Click Resume to retry."
+                            retry_match_state["pending"] = True
+                            retry_match_state["match"] = match
+                            retry_match_state["match_args"] = (
+                                eth_url, headers, cookies)
+                            pause_event.set()
+                            pause_btn.visible = False
+                            resume_btn.visible = True
+                            page.update()
+                            # Wait for resume, then retry this match (do not continue outer loop)
+                            while pause_event.is_set():
+                                resume_btn.visible = True
+                                pause_btn.visible = False
+                                processing_status_text.value = "Paused. Click Resume to continue."
+                                page.update()
+                                resume_event.wait()
+                                resume_event.clear()
+                            continue
+                    # Output: Bar chart for regions (sorted by percent descending)
+                    output_cards_grid.controls.clear()
+                    if region_dict:
+                        sorted_regions = sorted(
+                            region_dict.items(), key=lambda x: -x[1])
+                        bars = []
+                        max_label_len = max(
+                            (len(lbl) for lbl, _ in sorted_regions), default=10)
+                        bar_max_width = 500  # px, for 100%
+                        for idx, (lbl, pct) in enumerate(sorted_regions, 1):
+                            bar_width = int(bar_max_width * (pct / 100.0))
+                            bars.append(
+                                ft.Row([
+                                    ft.Text(lbl, size=16, width=180,
+                                            overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Container(
+                                        content=ft.Container(
+                                            bgcolor="#1976d2",
                                             border_radius=6,
-                                            width=bar_max_width,
+                                            width=bar_width,
                                             height=28,
                                             alignment=ft.alignment.center_left,
-                                            margin=ft.margin.only(bottom=6)
-                                        )
-                                    ], alignment="start", spacing=12)
-                                )
-                            output_cards_grid.controls.extend(bars)
-                        else:
-                            output_cards_grid.controls.append(
-                                ft.Row([
-                                    ft.Text("No ethnicity data", size=16)
-                                ], alignment="start")
+                                            padding=ft.padding.only(left=8),
+                                            content=ft.Text(
+                                                f"{pct}%", size=15, color="#FFFFFF", weight=ft.FontWeight.BOLD)
+                                        ),
+                                        bgcolor="#e3e3e3",
+                                        border_radius=6,
+                                        width=bar_max_width,
+                                        height=28,
+                                        alignment=ft.alignment.center_left,
+                                        margin=ft.margin.only(bottom=6)
+                                    )
+                                ], alignment="start", spacing=12)
                             )
-                        page.update()
-                        match_data = {
-                            "display_name": display_name,
-                            "sample_id": sample_id,
-                            "sharedCM": shared_cm,
-                            "regions": region_dict.copy()
-                        }
-                        matches_data.append(match_data)
-                        try:
-                            append_to_csv_smart(
-                                match_data, all_region_labels, csv_filename, is_first_match=(matches_written == 0))
-                            print(
-                                f"[MATCH {matches_written+1}/{max_matches}] Saved to CSV: {csv_filename}")
-                        except Exception as e:
-                            print(
-                                f"[MATCH {matches_written+1}/{max_matches}] Error saving to CSV: {e}")
-                        matches_written += 1
-                        if matches_written >= max_matches:
-                            break
-                        time.sleep(MATCH_PROCESS_DELAY)
-                    # If we reached max_matches, break outer loop
+                        output_cards_grid.controls.extend(bars)
+                    else:
+                        output_cards_grid.controls.append(
+                            ft.Row([
+                                ft.Text("No ethnicity data", size=16)
+                            ], alignment="start")
+                        )
+                    page.update()
+                    match_data = {
+                        "display_name": display_name,
+                        "sample_id": sample_id,
+                        "sharedCM": shared_cm,
+                        "regions": region_dict.copy()
+                    }
+                    matches_data.append(match_data)
+                    try:
+                        append_to_csv_smart(
+                            match_data, all_region_labels, csv_filename, is_first_match=(matches_written == 0))
+                        print(
+                            f"[MATCH {matches_written+1}/{max_matches}] Saved to CSV: {csv_filename}")
+                    except Exception as e:
+                        print(
+                            f"[MATCH {matches_written+1}/{max_matches}] Error saving to CSV: {e}")
+                    matches_written += 1
                     if matches_written >= max_matches:
                         break
-
-                    # --- Custom cM: Early exit if all matches in this page AND the page is full (100) are below lower bound ---
-                    # If custom_cm_early_exit is True, break the outer while loop (stop fetching pages)
-                    if custom_cm_early_exit:
-                        break
-                else:
-                    print(f"Failed to fetch matches for page {page_num}")
-                    sys.stdout.flush()
+                    time.sleep(MATCH_PROCESS_DELAY)
+                if matches_written >= max_matches:
+                    break
+                if custom_cm_early_exit:
+                    break
+                # No need for match_error_break logic; handled by continue above
                 page_num += 1
-                # If we didn't reach max_matches, keep going (even if total_pages was reached, as long as new data is returned)
                 if matches_written < max_matches:
                     time.sleep(MATCH_PROCESS_DELAY)
             # After all pages fetched, clear the processing label for match processing
@@ -1369,6 +1485,7 @@ def main(page: ft.Page):
     def pause_clicked(e):
         import time
         pause_event.set()
+        resume_event.clear()  # Clear resume event when pausing
         pause_btn.visible = False
         resume_btn.visible = True
         processing_status_text.value = "Paused. Click Resume to continue."
@@ -1379,6 +1496,7 @@ def main(page: ft.Page):
     def resume_clicked(e):
         if pause_event.is_set():
             pause_event.clear()
+            resume_event.set()  # Signal the waiting thread to continue
             resume_btn.visible = False
             pause_btn.visible = True
             processing_status_text.value = "Resuming..."
