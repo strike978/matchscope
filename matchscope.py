@@ -199,6 +199,9 @@ def main(page: ft.Page):
 
     # Text widget for processing status below progress bar
     processing_status_text = ft.Text(value="", size=16, selectable=False)
+    # Text widget for time left notification below the progress bar
+    time_left_text = ft.Text(
+        value="", size=14, color="#888888", selectable=False)
     test_dropdown = ft.Dropdown(
         label="Select DNA Test", options=[], visible=False, width=400)
     # Radio buttons for match type
@@ -371,13 +374,34 @@ def main(page: ft.Page):
             resp = requests.get(url, headers=test_headers, cookies=cookies)
             tests_json = resp.json()
             nonlocal tests_data
-            tests_data = {(t.get('testGuid') or t.get('subjectName'))                          : t for t in tests_json.get('dnaSamplesData', [])}
+            tests_data = {(t.get('testGuid') or t.get('subjectName')): t for t in tests_json.get('dnaSamplesData', [])}
             test_dropdown.options = [ft.dropdown.Option(key=k, text=t.get(
                 'subjectName') or k) for k, t in tests_data.items()]
         except Exception as ex:
             test_dropdown.options = []
             show_message(f"Failed to fetch tests: {ex}")
         page.update()
+
+    # Communities filter group: label and checkboxes inside a Card with border
+    communities_checkbox_label = ft.Text(
+        "Communities Filter: Grab matches with ONLY the selected communities",
+        size=16, weight=ft.FontWeight.BOLD, visible=False)
+    communities_checkbox_column = ft.Column(
+        controls=[], visible=False, spacing=4)
+    communities_filter_group = ft.Card(
+        content=ft.Container(
+            content=ft.Column([
+                communities_checkbox_label,
+                communities_checkbox_column
+            ], spacing=8),
+            padding=ft.padding.all(18),
+            border=ft.border.all(2, "#1565c0"),  # strong blue border
+            border_radius=14,
+            # No background color, use default
+            # No shadow
+        ),
+        visible=False
+    )
 
     def dropdown_changed(e):
         selected = test_dropdown.value
@@ -387,14 +411,100 @@ def main(page: ft.Page):
             match_type_radio.visible = False
             custom_min_cm.visible = False
             custom_max_cm.visible = False
+            communities_checkbox_label.visible = False
+            communities_checkbox_column.visible = False
+            communities_checkbox_column.controls = []
             page.update()
             return
         get_matches_btn.visible = True
         number_input.visible = True
         match_type_radio.visible = True
-        # Hide custom cM fields until match count is fetched
+        match_options_card.visible = True
+        # Hide custom cM fields until match count is fetched (handled in card)
         custom_min_cm.visible = False
         custom_max_cm.visible = False
+
+        # Hide old communities UI, show group
+        communities_checkbox_label.visible = False
+        communities_checkbox_column.visible = False
+        communities_filter_group.visible = True
+
+        # Fetch and show communities for the selected test as checkboxes, with label
+        def fetch_communities():
+            test = tests_data[selected]
+            cookie_string = text_area.value.strip()
+            cookies = parse_cookie_string(cookie_string)
+            headers = get_common_headers()
+            headers['referer'] = f"https://www.ancestry.com/discoveryui-matches/"
+            headers['content-type'] = 'application/json'
+            csrf_token = get_csrf_token(cookies)
+            if csrf_token:
+                headers['x-csrf-token'] = csrf_token
+            try:
+                url = f"https://www.ancestry.com/dna/origins/secure/tests/{selected}/branches"
+                resp = requests.get(url, headers=headers, cookies=cookies)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # Only collect top-level community IDs (not nested)
+                    top_level_ids = []
+                    if isinstance(data, list):
+                        for entry in data:
+                            if 'id' in entry:
+                                top_level_ids.append(entry['id'])
+                    if top_level_ids:
+                        # POST to get names
+                        post_url = "https://www.ancestry.com/dna/origins/branches/names?locale=en-US"
+                        try:
+                            resp2 = requests.post(
+                                post_url, headers=headers, cookies=cookies, json=top_level_ids)
+                            if resp2.status_code == 200:
+                                names_map = resp2.json()
+                                # Build checkboxes for each top-level community
+                                checkboxes = []
+                                for cid in top_level_ids:
+                                    name = names_map.get(cid, cid)
+                                    cb = ft.Checkbox(label=f"{name}", value=False, data={
+                                                     "id": cid, "name": name})
+                                    checkboxes.append(cb)
+                                communities_checkbox_column.controls = checkboxes
+                                communities_checkbox_column.visible = True
+                                communities_checkbox_label.visible = True
+                                communities_filter_group.visible = True
+                            else:
+                                communities_checkbox_column.controls = [
+                                    ft.Text("Communities: (failed to fetch names)")]
+                                communities_checkbox_column.visible = True
+                                communities_checkbox_label.visible = True
+                                communities_filter_group.visible = True
+                        except Exception as ex:
+                            communities_checkbox_column.controls = [
+                                ft.Text(f"Communities: (error: {ex})")]
+                            communities_checkbox_column.visible = True
+                            communities_checkbox_label.visible = True
+                            communities_filter_group.visible = True
+                    else:
+                        communities_checkbox_column.controls = [
+                            ft.Text("Communities: None")]
+                        communities_checkbox_column.visible = True
+                        communities_checkbox_label.visible = True
+                        communities_filter_group.visible = True
+                else:
+                    communities_checkbox_column.controls = [
+                        ft.Text("Communities: (failed to fetch)")]
+                    communities_checkbox_column.visible = True
+                    communities_checkbox_label.visible = True
+                    communities_filter_group.visible = True
+            except Exception as ex:
+                communities_checkbox_column.controls = [
+                    ft.Text(f"Communities: (error: {ex})")]
+                communities_checkbox_column.visible = True
+                communities_checkbox_label.visible = True
+                communities_filter_group.visible = True
+            page.update()
+        # Run in a thread to avoid blocking UI
+        import threading
+        threading.Thread(target=fetch_communities).start()
+
         fetch_and_show_match_count()
         page.update()
 
@@ -537,6 +647,7 @@ def main(page: ft.Page):
         progress_bar.visible = False
         output_cards_grid.controls.clear()
         processing_status_text.value = ""
+        time_left_text.value = ""
         pause_btn.visible = False  # Only show after we start fetching
         resume_btn.visible = False
         pause_event.clear()
@@ -743,6 +854,17 @@ def main(page: ft.Page):
                 progress_bar.value = page_num / needed_pages
                 # Show processing label for each page fetch (page fetching phase)
                 processing_status_text.value = f"Fetching page {page_num}/{needed_pages}..."
+                # Estimate time left (page fetching phase)
+                if page_num > 1:
+                    elapsed = time.time() - start_time
+                    avg_time_per_page = elapsed / (page_num - 1)
+                    pages_left = min(total_pages, needed_pages) - page_num + 1
+                    est_time_left = int(avg_time_per_page * pages_left)
+                    mins, secs = divmod(est_time_left, 60)
+                    time_left_text.value = f"Estimated time left: {mins}m {secs}s"
+                else:
+                    start_time = time.time()
+                    time_left_text.value = ""
                 page.update()
                 # Build URL based on match type (refactored for clarity)
                 if match_type == "distant":
@@ -870,6 +992,9 @@ def main(page: ft.Page):
                             for label in current_regions:
                                 row.append(region_percents.get(label, ""))
                             writer.writerow(row)
+
+            # --- Match processing phase ---
+            match_start_time = None
             for i, match in enumerate(match_list_accum):
                 if this_run != run_id:
                     return
@@ -889,6 +1014,58 @@ def main(page: ft.Page):
 
                 progress_bar.visible = True
                 progress_bar.value = (i+1)/len(match_list_accum)
+                # Estimate time left (match processing phase)
+                if i == 0:
+                    match_start_time = time.time()
+                    time_left_text.value = ""
+                elif match_start_time is not None:
+                    elapsed = time.time() - match_start_time
+                    avg_time_per_match = elapsed / i
+                    matches_left = len(match_list_accum) - i
+                    est_time_left = int(avg_time_per_match * matches_left)
+                    mins, secs = divmod(est_time_left, 60)
+                    time_left_text.value = f"Estimated time left: {mins}m {secs}s"
+                page.update()
+
+                # --- Communities filter using sharedmigrations endpoint ---
+                selected_community_ids = set()
+                if communities_checkbox_column.visible:
+                    for cb in communities_checkbox_column.controls:
+                        if hasattr(cb, 'value') and cb.value and hasattr(cb, 'data') and cb.data and 'id' in cb.data:
+                            selected_community_ids.add(cb.data['id'])
+
+                skip_for_communities = False
+                if selected_community_ids:
+                    # Fetch sharedmigrations for this match
+                    migrations_url = f"https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/sharedmigrations"
+                    try:
+                        mig_resp = requests.get(
+                            migrations_url, headers=headers, cookies=cookies)
+                        if mig_resp.status_code == 200:
+                            mig_json = mig_resp.json()
+                            sampleB = mig_json.get("sampleB", {})
+                            sampleB_communities = set(
+                                sampleB.get("communities", []))
+                            # Only proceed if sampleB's communities are exactly the selected set
+                            if sampleB_communities != selected_community_ids:
+                                processing_status_text.value = f"Skipping ({sample_id}): communities do not match selection"
+                                page.update()
+                                time.sleep(2.5)
+                                # SKIP: do not save to CSV or process further
+                                continue
+                        else:
+                            processing_status_text.value = f"Skipping ({sample_id}): failed to fetch communities"
+                            page.update()
+                            time.sleep(2.5)
+                            # SKIP: do not save to CSV or process further
+                            continue
+                    except Exception as ex:
+                        processing_status_text.value = f"Skipping ({sample_id}): error fetching communities"
+                        page.update()
+                        time.sleep(2.5)
+                        # SKIP: do not save to CSV or process further
+                        continue
+
                 processing_status_text.value = f"Processing {i+1}/{len(match_list_accum)}: ({sample_id})..."
                 page.update()
                 url = f'https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/ethnicity'
@@ -980,10 +1157,11 @@ def main(page: ft.Page):
                     "sharedCM": shared_cm,
                     "regions": region_dict.copy()
                 }
+                # Only add to matches_data and CSV if not skipped by communities filter
                 matches_data.append(match_data)
                 try:
                     append_to_csv_smart(
-                        match_data, all_region_labels, csv_filename, is_first_match=(i == 0))
+                        match_data, all_region_labels, csv_filename, is_first_match=(len(matches_data) == 1))
                     print(f"{progress_str} Saved to CSV: {csv_filename}")
                 except Exception as e:
                     print(f"{progress_str} Error saving to CSV: {e}")
@@ -994,6 +1172,7 @@ def main(page: ft.Page):
                 pause_btn.visible = False
                 resume_btn.visible = False
                 processing_status_text.value = "Processing done."
+                time_left_text.value = ""
                 show_message(
                     f"Done. {len(matches_data)} matches processed. Saved to {csv_filename}.")
                 page.update()
@@ -1027,21 +1206,41 @@ def main(page: ft.Page):
     # Place match_count_text and "Matches" label to the left of number_input
 
     # Remove match count label and number from UI
+    match_options_title = ft.Text(
+        "Match Options",
+        size=16,
+        weight=ft.FontWeight.BOLD,
+        visible=True
+    )
+    match_options_card = ft.Card(
+        content=ft.Container(
+            content=ft.Column([
+                match_options_title,
+                match_type_radio,
+                ft.Row([
+                    custom_min_cm,
+                    custom_max_cm
+                ], alignment="start", spacing=10)
+            ], spacing=8),
+            padding=ft.padding.all(18),
+            border=ft.border.all(2, "#1565c0"),  # strong blue border
+            border_radius=14,
+        ),
+        visible=False
+    )
+
     main_column = ft.Column([
         text_area,
         ft.Row([auth_btn, clear_btn]),
         test_dropdown,
-        match_type_radio,
-        # Show custom cM fields directly under the radio group
-        ft.Row([
-            custom_min_cm,
-            custom_max_cm
-        ], alignment="start", spacing=10),
+        communities_filter_group,
+        match_options_card,
         ft.Row([
             number_input,
             get_matches_btn
         ], alignment="start", spacing=10),
         progress_bar,
+        time_left_text,
         processing_status_text,
         ft.Row([pause_btn, resume_btn], alignment="start", spacing=10),
         output_cards_grid
