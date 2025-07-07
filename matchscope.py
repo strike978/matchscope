@@ -689,8 +689,7 @@ def main(page: ft.Page):
             resp = requests.get(url, headers=test_headers, cookies=cookies)
             tests_json = resp.json()
             nonlocal tests_data
-            tests_data = {(t.get('testGuid') or t.get('subjectName'))
-                           : t for t in tests_json.get('dnaSamplesData', [])}
+            tests_data = {(t.get('testGuid') or t.get('subjectName')): t for t in tests_json.get('dnaSamplesData', [])}
             test_dropdown.options = [ft.dropdown.Option(key=k, text=t.get(
                 'subjectName') or k) for k, t in tests_data.items()]
         except Exception as ex:
@@ -1179,19 +1178,18 @@ def main(page: ft.Page):
                 import os
                 import csv
                 current_regions = sorted(all_region_labels)
-                header = ["Display Name", "Sample ID", "sharedCM"] + \
-                    current_regions + ["Communities"]
+                header = ["Display Name", "Sample ID",
+                          "sharedCM", "Communities"] + current_regions
                 communities_str = match_data.get("communities", "")
                 if is_first_match or not os.path.exists(filename):
                     with open(filename, "w", newline='', encoding="utf-8") as f:
                         writer = csv.writer(f)
                         writer.writerow(header)
                         row = [match_data.get("display_name", ""), match_data.get(
-                            "sample_id", ""), match_data.get("sharedCM", "")]
+                            "sample_id", ""), match_data.get("sharedCM", ""), communities_str]
                         region_percents = match_data.get("regions", {})
                         for label in current_regions:
                             row.append(region_percents.get(label, ""))
-                        row.append(communities_str)
                         writer.writerow(row)
                 else:
                     existing_header = []
@@ -1208,56 +1206,53 @@ def main(page: ft.Page):
                         existing_header = []
                         existing_data = []
                     # Ensure Communities column exists in header and all rows
-                    if not (existing_header and existing_header[-1] == "Communities"):
-                        if existing_header:
-                            existing_header.append("Communities")
-                        for i in range(len(existing_data)):
-                            existing_data[i].append("")
-                    existing_regions = set(
-                        existing_header[3:-1]) if len(existing_header) > 4 else set()
+                    if existing_header:
+                        if "Communities" not in existing_header:
+                            # Insert Communities after sharedCM (index 3)
+                            existing_header.insert(3, "Communities")
+                            for i in range(len(existing_data)):
+                                existing_data[i].insert(3, "")
+                    existing_regions = set(existing_header[4:]) if len(
+                        existing_header) > 4 else set()
                     new_regions = set(current_regions) - existing_regions
                     # If new regions, rewrite file with new columns
-                    if new_regions or (len(existing_header) != len(header)):
+                    if new_regions or (existing_header[:4] != header[:4]) or (existing_header[4:] != header[4:]):
                         print(
                             f"Rewriting CSV with {len(new_regions)} new columns: {sorted(new_regions)}")
-                        # Insert new region columns before Communities
+                        # Insert new region columns after Communities
                         new_header = ["Display Name", "Sample ID",
-                                      "sharedCM"] + current_regions + ["Communities"]
-                        # Map old region indices
+                                      "sharedCM", "Communities"] + current_regions
+                        # Map old region indices (after Communities)
                         old_region_indices = {
-                            region: idx+3 for idx, region in enumerate(existing_header[3:-1])}
+                            region: idx+4 for idx, region in enumerate(existing_header[4:])}
                         with open(filename, "w", newline='', encoding="utf-8") as f:
                             writer = csv.writer(f)
                             writer.writerow(new_header)
                             for row in existing_data:
-                                new_row = row[:3]
+                                new_row = row[:4]
                                 for region in current_regions:
                                     idx = old_region_indices.get(region, None)
-                                    if idx is not None and idx < len(row)-1:
+                                    if idx is not None and idx < len(row):
                                         new_row.append(row[idx])
                                     else:
                                         new_row.append("")
-                                # Communities is always last column
-                                new_row.append(row[-1] if len(row) > 3 else "")
                                 writer.writerow(new_row)
                             # Write the new match row
                             row = [match_data.get("display_name", ""), match_data.get(
-                                "sample_id", ""), match_data.get("sharedCM", "")]
+                                "sample_id", ""), match_data.get("sharedCM", ""), communities_str]
                             region_percents = match_data.get("regions", {})
                             for label in current_regions:
                                 row.append(region_percents.get(label, ""))
-                            row.append(communities_str)
                             writer.writerow(row)
                     else:
                         # Append new row with correct communities value
                         with open(filename, "a", newline='', encoding="utf-8") as f:
                             writer = csv.writer(f)
                             row = [match_data.get("display_name", ""), match_data.get(
-                                "sample_id", ""), match_data.get("sharedCM", "")]
+                                "sample_id", ""), match_data.get("sharedCM", ""), communities_str]
                             region_percents = match_data.get("regions", {})
                             for label in current_regions:
                                 row.append(region_percents.get(label, ""))
-                            row.append(communities_str)
                             writer.writerow(row)
 
             # --- Combined fetch and process loop ---
