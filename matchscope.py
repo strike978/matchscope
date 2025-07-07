@@ -689,7 +689,8 @@ def main(page: ft.Page):
             resp = requests.get(url, headers=test_headers, cookies=cookies)
             tests_json = resp.json()
             nonlocal tests_data
-            tests_data = {(t.get('testGuid') or t.get('subjectName')): t for t in tests_json.get('dnaSamplesData', [])}
+            tests_data = {(t.get('testGuid') or t.get('subjectName'))
+                           : t for t in tests_json.get('dnaSamplesData', [])}
             test_dropdown.options = [ft.dropdown.Option(key=k, text=t.get(
                 'subjectName') or k) for k, t in tests_data.items()]
         except Exception as ex:
@@ -1178,8 +1179,9 @@ def main(page: ft.Page):
                 import os
                 import csv
                 current_regions = sorted(all_region_labels)
-                header = ["Display Name", "Sample ID",
-                          "sharedCM"] + current_regions
+                header = ["Display Name", "Sample ID", "sharedCM"] + \
+                    current_regions + ["Communities"]
+                communities_str = match_data.get("communities", "")
                 if is_first_match or not os.path.exists(filename):
                     with open(filename, "w", newline='', encoding="utf-8") as f:
                         writer = csv.writer(f)
@@ -1189,6 +1191,7 @@ def main(page: ft.Page):
                         region_percents = match_data.get("regions", {})
                         for label in current_regions:
                             row.append(region_percents.get(label, ""))
+                        row.append(communities_str)
                         writer.writerow(row)
                 else:
                     existing_header = []
@@ -1204,37 +1207,49 @@ def main(page: ft.Page):
                         print(f"Error reading existing CSV: {e}")
                         existing_header = []
                         existing_data = []
-                    existing_regions = set(existing_header[3:]) if len(
-                        existing_header) > 3 else set()
+                    # Ensure Communities column exists in header and all rows
+                    if not (existing_header and existing_header[-1] == "Communities"):
+                        if existing_header:
+                            existing_header.append("Communities")
+                        for i in range(len(existing_data)):
+                            existing_data[i].append("")
+                    existing_regions = set(
+                        existing_header[3:-1]) if len(existing_header) > 4 else set()
                     new_regions = set(current_regions) - existing_regions
-                    if new_regions:
+                    # If new regions, rewrite file with new columns
+                    if new_regions or (len(existing_header) != len(header)):
                         print(
                             f"Rewriting CSV with {len(new_regions)} new columns: {sorted(new_regions)}")
+                        # Insert new region columns before Communities
+                        new_header = ["Display Name", "Sample ID",
+                                      "sharedCM"] + current_regions + ["Communities"]
+                        # Map old region indices
+                        old_region_indices = {
+                            region: idx+3 for idx, region in enumerate(existing_header[3:-1])}
                         with open(filename, "w", newline='', encoding="utf-8") as f:
                             writer = csv.writer(f)
-                            writer.writerow(header)
+                            writer.writerow(new_header)
                             for row in existing_data:
-                                if len(row) >= 3:
-                                    new_row = row[:3]
-                                    old_regions = existing_header[3:] if len(
-                                        existing_header) > 3 else []
-                                    old_region_data = row[3:] if len(
-                                        row) > 3 else []
-                                    old_data_map = {}
-                                    for i, region in enumerate(old_regions):
-                                        if i < len(old_region_data):
-                                            old_data_map[region] = old_region_data[i]
-                                    for region in current_regions:
-                                        new_row.append(
-                                            old_data_map.get(region, ""))
-                                    writer.writerow(new_row)
+                                new_row = row[:3]
+                                for region in current_regions:
+                                    idx = old_region_indices.get(region, None)
+                                    if idx is not None and idx < len(row)-1:
+                                        new_row.append(row[idx])
+                                    else:
+                                        new_row.append("")
+                                # Communities is always last column
+                                new_row.append(row[-1] if len(row) > 3 else "")
+                                writer.writerow(new_row)
+                            # Write the new match row
                             row = [match_data.get("display_name", ""), match_data.get(
                                 "sample_id", ""), match_data.get("sharedCM", "")]
                             region_percents = match_data.get("regions", {})
                             for label in current_regions:
                                 row.append(region_percents.get(label, ""))
+                            row.append(communities_str)
                             writer.writerow(row)
                     else:
+                        # Append new row with correct communities value
                         with open(filename, "a", newline='', encoding="utf-8") as f:
                             writer = csv.writer(f)
                             row = [match_data.get("display_name", ""), match_data.get(
@@ -1242,6 +1257,7 @@ def main(page: ft.Page):
                             region_percents = match_data.get("regions", {})
                             for label in current_regions:
                                 row.append(region_percents.get(label, ""))
+                            row.append(communities_str)
                             writer.writerow(row)
 
             # --- Combined fetch and process loop ---
@@ -1539,6 +1555,26 @@ def main(page: ft.Page):
                     progress_bar.value = (matches_written+1)/max_matches
                     progress_bar.visible = True
                     page.update()
+
+                    # Fetch communities for this match ONCE
+                    communities_url = f"https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/sharedmigrations"
+                    communities_list = []
+                    try:
+                        comm_resp = requests.get(
+                            communities_url, headers=headers, cookies=cookies)
+                        if comm_resp.status_code == 200:
+                            comm_json = comm_resp.json()
+                            sampleB = comm_json.get("sampleB", {})
+                            comm_ids = sampleB.get("communities", [])
+                            for cid in comm_ids:
+                                name = COMMUNITY_LABELS.get(cid, cid)
+                                communities_list.append(name)
+                    except Exception as e:
+                        print(
+                            f"Error fetching communities for {sample_id}: {e}")
+                    communities_str = "; ".join(communities_list)
+
+                    # Ethnicity fetch
                     eth_url = f'https://www.ancestry.com/discoveryui-matchesservice/api/compare/{test_guid}/with/{sample_id}/ethnicity'
                     region_dict = {}
                     region_line = ""
@@ -1612,8 +1648,23 @@ def main(page: ft.Page):
                                 resume_event.wait()
                                 resume_event.clear()
                             continue
-                    # Output: Bar chart for regions (sorted by percent descending)
+
+                    # Output: Communities above bar chart for regions
                     output_cards_grid.controls.clear()
+                    if communities_list:
+                        numbered_list = "\n".join([
+                            f"{i+1}. {name}" for i, name in enumerate(communities_list)
+                        ])
+                        output_cards_grid.controls.append(
+                            ft.Text(
+                                f"Communities:\n{numbered_list}", size=18, weight=ft.FontWeight.BOLD, color="#1976d2")
+                        )
+                    else:
+                        output_cards_grid.controls.append(
+                            ft.Text("Communities: None", size=18,
+                                    weight=ft.FontWeight.BOLD, color="#888888")
+                        )
+                    # Bar chart for regions (sorted by percent descending)
                     if region_dict:
                         sorted_regions = sorted(
                             region_dict.items(), key=lambda x: -x[1])
@@ -1655,11 +1706,14 @@ def main(page: ft.Page):
                             ], alignment="start")
                         )
                     page.update()
+
+                    # Save match data (including communities_str)
                     match_data = {
                         "display_name": display_name,
                         "sample_id": sample_id,
                         "sharedCM": shared_cm,
-                        "regions": region_dict.copy()
+                        "regions": region_dict.copy(),
+                        "communities": communities_str
                     }
                     matches_data.append(match_data)
                     try:
