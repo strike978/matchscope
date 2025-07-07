@@ -4,18 +4,7 @@
 
 # MatchScope – AncestryDNA Edition
 
-**Version:** 0.8-BETA
-
-## What's New in 0.8-BETA
-
-- **Improved Reliability:** Major bug fixes and error handling improvements for match retrieval and processing.
-- **Faster Community Filtering:** Optimized logic for filtering by genetic communities, with better UI feedback and more robust API integration.
-- **Pause/Resume Stability:** Enhanced pause/resume controls for long-running operations, with improved thread safety and UI responsiveness.
-- **Expanded Region Support:** Now supports more ethnicity regions and dynamic CSV column handling for new regions.
-- **Better Progress Tracking:** More accurate progress bars, time estimates, and status messages throughout the workflow.
-- **General UI/UX Polish:** Smoother experience, clearer error messages, and minor visual improvements.
-
-See the [CHANGELOG.md](CHANGELOG.md) for full details.
+**Version:** 0.9-BETA
 
 A modern desktop app (built with Flet) for extracting, analyzing, and visualizing your AncestryDNA matches—including detailed ethnicity region breakdowns for each match. MatchScope features a responsive UI, real-time progress, robust CSV export, ethnicity bar charts, pause/resume controls, support for multiple test kits, community filtering, and safe, local-only data handling.
 
@@ -25,7 +14,7 @@ This is beta software with a technical authentication method. Users must manuall
 
 ## Features
 
-- **Comprehensive Match Retrieval**: Extract DNA match data including names, sample IDs, and shared centimorgans
+- **Comprehensive Match Retrieval**: Extract DNA match data including names, sample IDs, shared centimorgans, and communities
 - **Advanced Custom Filtering**: Specify custom centimorgan (cM) ranges and filter matches with greater flexibility
 - **Community Filtering**: Filter matches by specific communities (genetic groups) for targeted analysis
 - **Ethnicity Bar Charts**: Visualize ethnicity regions for each match in real time
@@ -91,13 +80,14 @@ This is beta software with a technical authentication method. Users must manuall
 
 The tool generates CSV files with the following structure (columns may vary depending on ethnicity regions found):
 
-| Display Name | Sample ID | sharedCM | England & Northwestern Europe | Ireland | Scotland | ... |
-| ------------ | --------- | -------- | ----------------------------- | ------- | -------- | --- |
-| John Doe     | 12345     | 45.2     | 25.5                          | 15.3    | 8.7      | ... |
+| Display Name | Sample ID | sharedCM | Communities                           | England & Northwestern Europe | Ireland | Scotland | ... |
+| ------------ | --------- | -------- | ------------------------------------- | ----------------------------- | ------- | -------- | --- |
+| John Doe     | 12345     | 45.2     | Early Southern U.S. African Americans | 25.5                          | 15.3    | 8.7      | ... |
 
 - **Display Name**: The match's display name
 - **Sample ID**: Unique identifier for the DNA sample
 - **sharedCM**: Amount of shared DNA in centimorgans
+- **Communities**: The match's genetic community or communities (if any)
 - **Region Columns**: Percentage of DNA from each ethnic region (100+ regions supported)
 
 ## File Naming
@@ -114,14 +104,14 @@ Example: `matches_ABC123_20250704.csv`
 
 ### Rate Limiting & Threading
 
-- 2.5-second delay between API requests to respect Ancestry's servers
+- 1.5-second delay between API requests to respect Ancestry's servers (faster, but still safe)
 - Pause/resume functionality for long-running operations
 - All UI updates are performed safely from the background thread
 - Time estimation for completion based on current processing speed
 
 ### Community Filtering
 
-- Filter matches by specific genetic communities/populations
+- Select communities per DNA kit using dynamic checkboxes
 - Only processes matches that belong to the selected communities
 - Automatically skips matches that don't meet community criteria
 - Improves targeted analysis for specific genetic groups
